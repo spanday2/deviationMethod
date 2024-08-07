@@ -3,9 +3,9 @@ from pdb import set_trace
 
 from common.definitions import idx_h, idx_hu1, idx_hu2, gravity
 
-def rhs_sw (deltaQ: numpy.ndarray, Q_tilda: numpy.ndarray, geom, mtrx, metric, topo, ptopo, nbsolpts: int, nb_elements_hori: int):
+def rhs_sw (Q: numpy.ndarray, geom, mtrx, metric, topo, ptopo, nbsolpts: int, nb_elements_hori: int):
 
-   Q = deltaQ + Q_tilda
+   # Q = deltaQ + Q_tilda
 
    type_vec = Q.dtype
    nb_equations = Q.shape[0]
@@ -32,9 +32,9 @@ def rhs_sw (deltaQ: numpy.ndarray, Q_tilda: numpy.ndarray, geom, mtrx, metric, t
    u1 = Q[idx_hu1] / Q[idx_h]
    u2 = Q[idx_hu2] / Q[idx_h]
 
-   t_HH = Q_tilda[idx_h] if topo is None else Q_tilda[idx_h] + topo.hsurf
-   t_u1 = Q_tilda[idx_hu1] / Q_tilda[idx_h]
-   t_u2 = Q_tilda[idx_hu2] / Q_tilda[idx_h]
+   # t_HH = Q_tilda[idx_h] if topo is None else Q_tilda[idx_h] + topo.hsurf
+   # t_u1 = Q_tilda[idx_hu1] / Q_tilda[idx_h]
+   # t_u2 = Q_tilda[idx_hu2] / Q_tilda[idx_h]
 
    # Interpolate to the element interface
    for elem in range(nb_elements_hori):
@@ -190,153 +190,153 @@ def rhs_sw (deltaQ: numpy.ndarray, Q_tilda: numpy.ndarray, geom, mtrx, metric, t
    #--------------------------------------------------------- Q_tilda --------------------------------------------------------------------------#
    #--------------------------------------------------------------------------------------------------------------------------------------------#
 
-   # Interpolate to the element interface
-   for elem in range(nb_elements_hori):
-      epais = elem * nbsolpts + numpy.arange(nbsolpts)
-      pos   = elem + offset
+   # # Interpolate to the element interface
+   # for elem in range(nb_elements_hori):
+   #    epais = elem * nbsolpts + numpy.arange(nbsolpts)
+   #    pos   = elem + offset
 
-      # --- Direction x1
+   #    # --- Direction x1
 
-      t_var_itf_i[idx_h, pos, 0, :] = t_HH[:, epais] @ mtrx.extrap_west
-      t_var_itf_i[idx_h, pos, 1, :] = t_HH[:, epais] @ mtrx.extrap_east
+   #    t_var_itf_i[idx_h, pos, 0, :] = t_HH[:, epais] @ mtrx.extrap_west
+   #    t_var_itf_i[idx_h, pos, 1, :] = t_HH[:, epais] @ mtrx.extrap_east
 
-      t_var_itf_i[1:, pos, 0, :] = Q_tilda[1:, :, epais] @ mtrx.extrap_west
-      t_var_itf_i[1:, pos, 1, :] = Q_tilda[1:, :, epais] @ mtrx.extrap_east
+   #    t_var_itf_i[1:, pos, 0, :] = Q_tilda[1:, :, epais] @ mtrx.extrap_west
+   #    t_var_itf_i[1:, pos, 1, :] = Q_tilda[1:, :, epais] @ mtrx.extrap_east
 
-      # --- Direction x2
-      t_var_itf_j[idx_h, pos, 0, :] = mtrx.extrap_south @ t_HH[epais, :]
-      t_var_itf_j[idx_h, pos, 1, :] = mtrx.extrap_north @ t_HH[epais, :]
+   #    # --- Direction x2
+   #    t_var_itf_j[idx_h, pos, 0, :] = mtrx.extrap_south @ t_HH[epais, :]
+   #    t_var_itf_j[idx_h, pos, 1, :] = mtrx.extrap_north @ t_HH[epais, :]
 
-      t_var_itf_j[1:, pos, 0, :] = mtrx.extrap_south @ Q_tilda[1:, epais, :]
-      t_var_itf_j[1:, pos, 1, :] = mtrx.extrap_north @ Q_tilda[1:, epais, :]
+   #    t_var_itf_j[1:, pos, 0, :] = mtrx.extrap_south @ Q_tilda[1:, epais, :]
+   #    t_var_itf_j[1:, pos, 1, :] = mtrx.extrap_north @ Q_tilda[1:, epais, :]
 
-   # Initiate transfers
-   all_request_2 = ptopo.xchange_sw_interfaces(geom, t_var_itf_i[idx_h], t_var_itf_j[idx_h], t_var_itf_i[idx_hu1], t_var_itf_i[idx_hu2], t_var_itf_j[idx_hu1], t_var_itf_j[idx_hu2], blocking=False)
+   # # Initiate transfers
+   # all_request_2 = ptopo.xchange_sw_interfaces(geom, t_var_itf_i[idx_h], t_var_itf_j[idx_h], t_var_itf_i[idx_hu1], t_var_itf_i[idx_hu2], t_var_itf_j[idx_hu1], t_var_itf_j[idx_hu2], blocking=False)
 
-   # Compute the fluxes
-   t_flux_x1[idx_h] = metric.sqrtG * Q_tilda[idx_hu1]
-   t_flux_x2[idx_h] = metric.sqrtG * Q_tilda[idx_hu2]
+   # # Compute the fluxes
+   # t_flux_x1[idx_h] = metric.sqrtG * Q_tilda[idx_hu1]
+   # t_flux_x2[idx_h] = metric.sqrtG * Q_tilda[idx_hu2]
 
-   hsquared = Q_tilda[idx_h]**2
-   t_flux_x1[idx_hu1] = metric.sqrtG * ( Q_tilda[idx_hu1] * t_u1 + 0.5 * gravity * metric.H_contra_11 * hsquared )
-   t_flux_x2[idx_hu1] = metric.sqrtG * ( Q_tilda[idx_hu1] * t_u2 + 0.5 * gravity * metric.H_contra_12 * hsquared )
+   # hsquared = Q_tilda[idx_h]**2
+   # t_flux_x1[idx_hu1] = metric.sqrtG * ( Q_tilda[idx_hu1] * t_u1 + 0.5 * gravity * metric.H_contra_11 * hsquared )
+   # t_flux_x2[idx_hu1] = metric.sqrtG * ( Q_tilda[idx_hu1] * t_u2 + 0.5 * gravity * metric.H_contra_12 * hsquared )
 
-   t_flux_x1[idx_hu2] = metric.sqrtG * ( Q_tilda[idx_hu2] * t_u1 + 0.5 * gravity * metric.H_contra_21 * hsquared )
-   t_flux_x2[idx_hu2] = metric.sqrtG * ( Q_tilda[idx_hu2] * t_u2 + 0.5 * gravity * metric.H_contra_22 * hsquared )
+   # t_flux_x1[idx_hu2] = metric.sqrtG * ( Q_tilda[idx_hu2] * t_u1 + 0.5 * gravity * metric.H_contra_21 * hsquared )
+   # t_flux_x2[idx_hu2] = metric.sqrtG * ( Q_tilda[idx_hu2] * t_u2 + 0.5 * gravity * metric.H_contra_22 * hsquared )
 
-   # Interior contribution to the derivatives, corrections for the boundaries will be added later
-   for elem in range(nb_elements_hori):
-      epais = elem * nbsolpts + numpy.arange(nbsolpts)
+   # # Interior contribution to the derivatives, corrections for the boundaries will be added later
+   # for elem in range(nb_elements_hori):
+   #    epais = elem * nbsolpts + numpy.arange(nbsolpts)
 
-      # --- Direction x1
-      t_df1_dx1[:,:,epais] = t_flux_x1[:,:,epais] @ mtrx.diff_solpt_tr
+   #    # --- Direction x1
+   #    t_df1_dx1[:,:,epais] = t_flux_x1[:,:,epais] @ mtrx.diff_solpt_tr
 
-      # --- Direction x2
-      t_df2_dx2[:,epais,:] = mtrx.diff_solpt @ t_flux_x2[:,epais,:]
+   #    # --- Direction x2
+   #    t_df2_dx2[:,epais,:] = mtrx.diff_solpt @ t_flux_x2[:,epais,:]
 
-   # Finish transfers
-   all_request_2.wait()
+   # # Finish transfers
+   # all_request_2.wait()
 
-   # Substract topo after extrapolation
-   if topo is not None:
-      t_var_itf_i[idx_h] -= topo.hsurf_itf_i
-      t_var_itf_j[idx_h] -= topo.hsurf_itf_j
+   # # Substract topo after extrapolation
+   # if topo is not None:
+   #    t_var_itf_i[idx_h] -= topo.hsurf_itf_i
+   #    t_var_itf_j[idx_h] -= topo.hsurf_itf_j
 
-   # Common AUSM fluxes
-   for itf in range(nb_interfaces_hori):
+   # # Common AUSM fluxes
+   # for itf in range(nb_interfaces_hori):
 
-      elem_L = itf
-      elem_R = itf + 1
+   #    elem_L = itf
+   #    elem_R = itf + 1
 
-      ################
-      # Direction x1 #
-      ################
+   #    ################
+   #    # Direction x1 #
+   #    ################
 
-      # Left state
-      p11_L = metric.sqrtG_itf_i[itf, :] * 0.5 * gravity * metric.H_contra_11_itf_i[itf, :] * t_var_itf_i[idx_h, elem_L, 1, :]**2
-      p21_L = metric.sqrtG_itf_i[itf, :] * 0.5 * gravity * metric.H_contra_21_itf_i[itf, :] * t_var_itf_i[idx_h, elem_L, 1, :]**2
-      aL = numpy.sqrt( gravity * t_var_itf_i[idx_h, elem_L, 1, :] * metric.H_contra_11_itf_i[itf, :] )
-      mL = t_var_itf_i[idx_hu1, elem_L, 1, :] / (t_var_itf_i[idx_h, elem_L, 1, :] * aL)
+   #    # Left state
+   #    p11_L = metric.sqrtG_itf_i[itf, :] * 0.5 * gravity * metric.H_contra_11_itf_i[itf, :] * t_var_itf_i[idx_h, elem_L, 1, :]**2
+   #    p21_L = metric.sqrtG_itf_i[itf, :] * 0.5 * gravity * metric.H_contra_21_itf_i[itf, :] * t_var_itf_i[idx_h, elem_L, 1, :]**2
+   #    aL = numpy.sqrt( gravity * t_var_itf_i[idx_h, elem_L, 1, :] * metric.H_contra_11_itf_i[itf, :] )
+   #    mL = t_var_itf_i[idx_hu1, elem_L, 1, :] / (t_var_itf_i[idx_h, elem_L, 1, :] * aL)
 
-      # Right state
-      p11_R = metric.sqrtG_itf_i[itf, :] * 0.5 * gravity * metric.H_contra_11_itf_i[itf, :] * t_var_itf_i[idx_h, elem_R, 0, :]**2
-      p21_R = metric.sqrtG_itf_i[itf, :] * 0.5 * gravity * metric.H_contra_21_itf_i[itf, :] * t_var_itf_i[idx_h, elem_R, 0, :]**2
-      aR = numpy.sqrt( gravity * t_var_itf_i[idx_h, elem_R, 0, :] * metric.H_contra_11_itf_i[itf, :] )
-      mR = t_var_itf_i[idx_hu1, elem_R, 0, :] / (t_var_itf_i[idx_h, elem_R, 0, :] * aR)
+   #    # Right state
+   #    p11_R = metric.sqrtG_itf_i[itf, :] * 0.5 * gravity * metric.H_contra_11_itf_i[itf, :] * t_var_itf_i[idx_h, elem_R, 0, :]**2
+   #    p21_R = metric.sqrtG_itf_i[itf, :] * 0.5 * gravity * metric.H_contra_21_itf_i[itf, :] * t_var_itf_i[idx_h, elem_R, 0, :]**2
+   #    aR = numpy.sqrt( gravity * t_var_itf_i[idx_h, elem_R, 0, :] * metric.H_contra_11_itf_i[itf, :] )
+   #    mR = t_var_itf_i[idx_hu1, elem_R, 0, :] / (t_var_itf_i[idx_h, elem_R, 0, :] * aR)
 
-      M = 0.25 * ( (mL + 1.)**2 - (mR - 1.)**2 )
+   #    M = 0.25 * ( (mL + 1.)**2 - (mR - 1.)**2 )
 
-      # --- Advection part
+   #    # --- Advection part
 
-      t_flux_x1_itf_i[:, elem_L, :, 1] = metric.sqrtG_itf_i[itf, :] * ( numpy.maximum(0., M) * aL * t_var_itf_i[:, elem_L, 1, :] +  numpy.minimum(0., M) * aR * t_var_itf_i[:, elem_R, 0, :] )
+   #    t_flux_x1_itf_i[:, elem_L, :, 1] = metric.sqrtG_itf_i[itf, :] * ( numpy.maximum(0., M) * aL * t_var_itf_i[:, elem_L, 1, :] +  numpy.minimum(0., M) * aR * t_var_itf_i[:, elem_R, 0, :] )
 
-      # --- Pressure part
+   #    # --- Pressure part
 
-      t_flux_x1_itf_i[idx_hu1, elem_L, :, 1] += 0.5 * ( (1. + mL) * p11_L + (1. - mR) * p11_R )
-      t_flux_x1_itf_i[idx_hu2, elem_L, :, 1] += 0.5 * ( (1. + mL) * p21_L + (1. - mR) * p21_R )
+   #    t_flux_x1_itf_i[idx_hu1, elem_L, :, 1] += 0.5 * ( (1. + mL) * p11_L + (1. - mR) * p11_R )
+   #    t_flux_x1_itf_i[idx_hu2, elem_L, :, 1] += 0.5 * ( (1. + mL) * p21_L + (1. - mR) * p21_R )
 
-      t_flux_x1_itf_i[:, elem_R, :, 0] = t_flux_x1_itf_i[:, elem_L, :, 1]
+   #    t_flux_x1_itf_i[:, elem_R, :, 0] = t_flux_x1_itf_i[:, elem_L, :, 1]
 
-      ################
-      # Direction x2 #
-      ################
+   #    ################
+   #    # Direction x2 #
+   #    ################
 
-      # Left state
-      p12_L = metric.sqrtG_itf_j[itf, :] * 0.5 * gravity * metric.H_contra_12_itf_j[itf, :] * t_var_itf_j[idx_h, elem_L, 1, :]**2
-      p22_L = metric.sqrtG_itf_j[itf, :] * 0.5 * gravity * metric.H_contra_22_itf_j[itf, :] * t_var_itf_j[idx_h, elem_L, 1, :]**2
-      aL = numpy.sqrt( gravity * t_var_itf_j[idx_h, elem_L, 1, :] * metric.H_contra_22_itf_j[itf, :] )
-      mL = t_var_itf_j[idx_hu2, elem_L, 1, :] / (t_var_itf_j[idx_h, elem_L, 1, :] * aL)
+   #    # Left state
+   #    p12_L = metric.sqrtG_itf_j[itf, :] * 0.5 * gravity * metric.H_contra_12_itf_j[itf, :] * t_var_itf_j[idx_h, elem_L, 1, :]**2
+   #    p22_L = metric.sqrtG_itf_j[itf, :] * 0.5 * gravity * metric.H_contra_22_itf_j[itf, :] * t_var_itf_j[idx_h, elem_L, 1, :]**2
+   #    aL = numpy.sqrt( gravity * t_var_itf_j[idx_h, elem_L, 1, :] * metric.H_contra_22_itf_j[itf, :] )
+   #    mL = t_var_itf_j[idx_hu2, elem_L, 1, :] / (t_var_itf_j[idx_h, elem_L, 1, :] * aL)
 
-      # Right state
-      p12_R = metric.sqrtG_itf_j[itf, :] * 0.5 * gravity * metric.H_contra_12_itf_j[itf, :] * t_var_itf_j[idx_h, elem_R, 0, :]**2
-      p22_R = metric.sqrtG_itf_j[itf, :] * 0.5 * gravity * metric.H_contra_22_itf_j[itf, :] * t_var_itf_j[idx_h, elem_R, 0, :]**2
-      aR = numpy.sqrt( gravity * t_var_itf_j[idx_h, elem_R, 0, :] * metric.H_contra_22_itf_j[itf, :] )
-      mR = t_var_itf_j[idx_hu2, elem_R, 0, :] / (t_var_itf_j[idx_h, elem_R, 0, :] * aR)
+   #    # Right state
+   #    p12_R = metric.sqrtG_itf_j[itf, :] * 0.5 * gravity * metric.H_contra_12_itf_j[itf, :] * t_var_itf_j[idx_h, elem_R, 0, :]**2
+   #    p22_R = metric.sqrtG_itf_j[itf, :] * 0.5 * gravity * metric.H_contra_22_itf_j[itf, :] * t_var_itf_j[idx_h, elem_R, 0, :]**2
+   #    aR = numpy.sqrt( gravity * t_var_itf_j[idx_h, elem_R, 0, :] * metric.H_contra_22_itf_j[itf, :] )
+   #    mR = t_var_itf_j[idx_hu2, elem_R, 0, :] / (t_var_itf_j[idx_h, elem_R, 0, :] * aR)
 
-      M = 0.25 * ( (mL + 1.)**2 - (mR - 1.)**2 )
+   #    M = 0.25 * ( (mL + 1.)**2 - (mR - 1.)**2 )
 
-      # --- Advection part
+   #    # --- Advection part
 
-      t_flux_x2_itf_j[:, elem_L, 1, :] = metric.sqrtG_itf_j[itf, :] * ( numpy.maximum(0., M) * aL * t_var_itf_j[:, elem_L, 1, :] + numpy.minimum(0., M) * aR * t_var_itf_j[:, elem_R, 0, :] )
+   #    t_flux_x2_itf_j[:, elem_L, 1, :] = metric.sqrtG_itf_j[itf, :] * ( numpy.maximum(0., M) * aL * t_var_itf_j[:, elem_L, 1, :] + numpy.minimum(0., M) * aR * t_var_itf_j[:, elem_R, 0, :] )
 
-      # --- Pressure part
+   #    # --- Pressure part
 
-      t_flux_x2_itf_j[idx_hu1, elem_L, 1, :] += 0.5 * ( (1. + mL) * p12_L + (1. - mR) * p12_R )
-      t_flux_x2_itf_j[idx_hu2, elem_L, 1, :] += 0.5 * ( (1. + mL) * p22_L + (1. - mR) * p22_R )
+   #    t_flux_x2_itf_j[idx_hu1, elem_L, 1, :] += 0.5 * ( (1. + mL) * p12_L + (1. - mR) * p12_R )
+   #    t_flux_x2_itf_j[idx_hu2, elem_L, 1, :] += 0.5 * ( (1. + mL) * p22_L + (1. - mR) * p22_R )
 
-      t_flux_x2_itf_j[:, elem_R, 0, :] = t_flux_x2_itf_j[:, elem_L, 1, :]
+   #    t_flux_x2_itf_j[:, elem_R, 0, :] = t_flux_x2_itf_j[:, elem_L, 1, :]
 
-   # Compute the derivatives
-   for elem in range(nb_elements_hori):
-      epais = elem * nbsolpts + numpy.arange(nbsolpts)
+   # # Compute the derivatives
+   # for elem in range(nb_elements_hori):
+   #    epais = elem * nbsolpts + numpy.arange(nbsolpts)
 
-      # --- Direction x1
+   #    # --- Direction x1
 
-      t_df1_dx1[:,:,epais] += t_flux_x1_itf_i[:, elem+offset,:,:] @ mtrx.correction_tr
+   #    t_df1_dx1[:,:,epais] += t_flux_x1_itf_i[:, elem+offset,:,:] @ mtrx.correction_tr
 
-      # --- Direction x2
+   #    # --- Direction x2
 
-      t_df2_dx2[:,epais,:] += mtrx.correction @ t_flux_x2_itf_j[:, elem+offset,:,:]
+   #    t_df2_dx2[:,epais,:] += mtrx.correction @ t_flux_x2_itf_j[:, elem+offset,:,:]
 
-   if topo is None:
-      topo_dzdx1 = numpy.zeros_like(metric.H_contra_11)
-      topo_dzdx2 = numpy.zeros_like(metric.H_contra_11)
-   else:
-      topo_dzdx1 = topo.dzdx1
-      topo_dzdx2 = topo.dzdx2
+   # if topo is None:
+   #    topo_dzdx1 = numpy.zeros_like(metric.H_contra_11)
+   #    topo_dzdx2 = numpy.zeros_like(metric.H_contra_11)
+   # else:
+   #    topo_dzdx1 = topo.dzdx1
+   #    topo_dzdx2 = topo.dzdx2
 
-   # Add coriolis, metric and terms due to varying bottom topography
-   # Note: christoffel_1_22 and metric.christoffel_2_11 are zero
-   t_forcing[idx_hu1,:,:] = 2.0 * ( metric.christoffel_1_01 * Q_tilda[idx_hu1] + metric.christoffel_1_02 * Q_tilda[idx_hu2]) \
-         + metric.christoffel_1_11 * Q_tilda[idx_hu1] * t_u1 + 2.0 * metric.christoffel_1_12 * Q_tilda[idx_hu1] * t_u2 \
-         + gravity * Q_tilda[idx_h] * ( metric.H_contra_11 * topo_dzdx1 + metric.H_contra_12 * topo_dzdx2)
+   # # Add coriolis, metric and terms due to varying bottom topography
+   # # Note: christoffel_1_22 and metric.christoffel_2_11 are zero
+   # t_forcing[idx_hu1,:,:] = 2.0 * ( metric.christoffel_1_01 * Q_tilda[idx_hu1] + metric.christoffel_1_02 * Q_tilda[idx_hu2]) \
+   #       + metric.christoffel_1_11 * Q_tilda[idx_hu1] * t_u1 + 2.0 * metric.christoffel_1_12 * Q_tilda[idx_hu1] * t_u2 \
+   #       + gravity * Q_tilda[idx_h] * ( metric.H_contra_11 * topo_dzdx1 + metric.H_contra_12 * topo_dzdx2)
 
-   t_forcing[idx_hu2,:,:] = 2.0 * (metric.christoffel_2_01 * Q_tilda[idx_hu1] + metric.christoffel_2_02 * Q[idx_hu2]) \
-         + 2.0 * metric.christoffel_2_12 * Q_tilda[idx_hu1] * t_u2 + metric.christoffel_2_22 * Q_tilda[idx_hu2] * t_u2 \
-         + gravity * Q_tilda[idx_h] * ( metric.H_contra_21 * topo_dzdx1 + metric.H_contra_22 * topo_dzdx2)
+   # t_forcing[idx_hu2,:,:] = 2.0 * (metric.christoffel_2_01 * Q_tilda[idx_hu1] + metric.christoffel_2_02 * Q[idx_hu2]) \
+   #       + 2.0 * metric.christoffel_2_12 * Q_tilda[idx_hu1] * t_u2 + metric.christoffel_2_22 * Q_tilda[idx_hu2] * t_u2 \
+   #       + gravity * Q_tilda[idx_h] * ( metric.H_contra_21 * topo_dzdx1 + metric.H_contra_22 * topo_dzdx2)
 
-   # Assemble the right-hand sides
-   t_rhs = metric.inv_sqrtG * - ( t_df1_dx1 + t_df2_dx2 ) - t_forcing
+   # # Assemble the right-hand sides
+   # t_rhs = metric.inv_sqrtG * - ( t_df1_dx1 + t_df2_dx2 ) - t_forcing
 
 
-   return rhs - t_rhs
+   return rhs
