@@ -1,4 +1,5 @@
 import numpy
+import pdb
 
 from common.definitions import idx_2d_rho, idx_2d_rho_u, idx_2d_rho_w, idx_2d_rho_theta,  \
                                p0, Rd, cpd, cvd, heat_capacity_ratio, gravity
@@ -311,6 +312,6 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
    #    t_rhs[idx_2d_rho_w, :end, :] = numpy.where( \
    #          geom.relief_mask, -(1.0 / etac) * normal_flux * geom.normals_z, t_rhs[idx_2d_rho_w, :end, :])
 
-
+   pdb.set_trace()
 
    return rhs

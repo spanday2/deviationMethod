@@ -30,8 +30,9 @@ class BackwardEuler(Integrator):
 
    def __step__(self, Q, dt):
 
-      pdb.set_trace()
+      # pdb.set_trace()
       
+      #Euler 
       geom = Cartesian2D((self.param.x0, self.param.x1), (self.param.z0, self.param.z1), self.param.nb_elements_horizontal, self.param.nb_elements_vertical, self.param.nbsolpts,self.param.nb_elements_relief_layer,self.param.relief_layer_height)
       mtrx = DFROperators(geom, self.param)
       theta_base = numpy.ones_like(geom.X1)*self.param.bubble_theta
@@ -51,9 +52,17 @@ class BackwardEuler(Integrator):
       Q_tilda = numpy.zeros_like(Q)
       Q_tilda[0] = base_state[1]
       Q_tilda[3] = base_state[3]
+
+      #Shallow-water
+      # Q_tilda = numpy.zeros_like(Q)
+      # Q_tilda[0] = 8000
       
       deltaQ  = Q - Q_tilda
-    
+      # AA = self.rhs(Q)
+      # BB = self.rhs(Q_tilda)
+      CR = self.rhs(deltaQ)    
+
+      pdb.set_trace()
 
       def BE_fun(deltaQ_plus): return self.BE_system(deltaQ_plus, deltaQ, Q_tilda, dt, self.rhs)
 

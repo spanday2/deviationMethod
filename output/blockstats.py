@@ -81,13 +81,13 @@ def blockstats_cs(Q, geom, topo, metric, mtrx, param, step):
       normalized_enstrophy = ( int_enstrophy - initial_enstrophy ) / initial_enstrophy
       
 
-      if MPI.COMM_WORLD.rank == 0:
-         with open('output.txt', 'a') as file:
-               # Write the variable value to the file
-               file.write(f"Variable Value: {normalized_mass}\n")
+      # if MPI.COMM_WORLD.rank == 0:
+      #    with open('output.txt', 'a') as file:
+      #          # Write the variable value to the file
+      #          file.write(f"Variable Value: {normalized_mass}\n")
 
       if MPI.COMM_WORLD.rank == 0:
-         print(f'normalized integral of mass = {int_mass}')
+         print(f'normalized integral of mass = {normalized_mass}')
          print(f'normalized integral of energy = {normalized_energy}')
          print(f'normalized integral of enstrophy = {normalized_enstrophy}')
 
