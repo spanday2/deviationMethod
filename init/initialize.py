@@ -1,4 +1,5 @@
 import numpy
+import pdb
 
 from common.definitions      import idx_rho, idx_rho_u1, idx_rho_u2, idx_rho_w, idx_rho_theta,                 \
                                     idx_h, idx_u1, idx_u2, idx_hu1, idx_hu2,                                   \
@@ -285,10 +286,19 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
    Q[idx_2d_rho_theta,:,:] = ρ * θ
 
    if param.case_number == 2:
-      Q_tilda = numpy.zeros_like(Q)
-      Q_tilda[idx_2d_rho] = ρ
-      Q_tilda[idx_2d_rho_theta] = ρ * θ
+      theta_base = numpy.ones_like(geom.X1)*param.bubble_theta
+      exner_base = numpy.zeros_like(theta_base)
+      nk, ni = geom.X1.shape
+      for k in range(nk):
+        for i in range(ni):
+            exner_base[k,i] = 1.0 - gravity / (cpd * theta_base[k,i]) * geom.X3[k,i]
+      P_base = p0 * exner_base**(cpd/Rd)
+      t_base = exner_base * theta_base
+      Q_tilda = numpy.zeros((4, nk, ni))
+      Q_tilda[0] = P_base / (Rd * t_base)         # density P = r R T
+      Q_tilda[3] = theta_base*Q_tilda[0]          # temp-dens
 
-      Q -= Q_tilda
+      Q = Q - Q_tilda
+
 
    return Q

@@ -28,36 +28,7 @@ class BackwardEuler(Integrator):
 
    def __step__(self, Q, dt):
 
-      # pdb.set_trace()
-      
-      #Euler 
-      # geom = Cartesian2D((self.param.x0, self.param.x1), (self.param.z0, self.param.z1), self.param.nb_elements_horizontal, self.param.nb_elements_vertical, self.param.nbsolpts,self.param.nb_elements_relief_layer,self.param.relief_layer_height)
-      # mtrx = DFROperators(geom, self.param)
-      # theta_base = numpy.ones_like(geom.X1)*self.param.bubble_theta
-      # exner_base = numpy.zeros_like(theta_base)
-      # nk, ni = geom.X1.shape
-      # for k in range(nk):
-      #   for i in range(ni):
-      #       exner_base[k,i] = 1.0 - gravity / (cpd * theta_base[k,i]) * geom.X3[k,i]
-      # P_base = p0 * exner_base**(cpd/Rd)
-      # t_base = exner_base * theta_base
-      # base_state = numpy.zeros((4, nk, ni))
-      # base_state[0] = theta_base                     # theta
-      # base_state[1] = P_base / (Rd * t_base)         # density P = r R T
-      # base_state[2] = P_base                         # pressure
-      # base_state[3] = base_state[0]*base_state[1]    # temp-dens
-
-      # Q_tilda = numpy.zeros_like(Q)
-      # Q_tilda[0] = base_state[1]
-      # Q_tilda[3] = base_state[3]
-
-      #Shallow-water
-      # Q_tilda = numpy.zeros_like(Q)
-      # Q_tilda[0] = 8000
-      
-      # deltaQ  = Q - Q_tilda
-  
-
+ 
       def BE_fun(Q_plus): return self.BE_system(Q_plus, Q, dt, self.rhs)
 
       maxiter = None
