@@ -284,4 +284,11 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
    Q[idx_2d_rho_w,:,:]     = ρ * ww
    Q[idx_2d_rho_theta,:,:] = ρ * θ
 
+   if param.case_number == 2:
+      Q_tilda = numpy.zeros_like(Q)
+      Q_tilda[idx_2d_rho] = ρ
+      Q_tilda[idx_2d_rho_theta] = ρ * θ
+
+      Q -= Q_tilda
+
    return Q
