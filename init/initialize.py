@@ -1,4 +1,5 @@
 import numpy
+import pdb
 
 from common.definitions      import idx_rho, idx_rho_u1, idx_rho_u2, idx_rho_w, idx_rho_theta,                 \
                                     idx_h, idx_u1, idx_u2, idx_hu1, idx_hu2,                                   \
@@ -201,9 +202,12 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
       z0 = 260
       r = numpy.sqrt( (geom.X1-x0)**2 + (geom.X3-z0)**2 )
 
-      θ = numpy.where(r <= a,
-                      θ + A,
-                      θ + A * numpy.exp(-((r-a)/s)**2))
+      temp  = numpy.ones_like(geom.X1)
+      temp *= param.bubble_theta
+
+      temp = numpy.where(r <= a,
+                      temp + A,
+                      temp + A * numpy.exp(-((r-a)/s)**2))
 
       # Enforce mirror symmetry
       if ni % 2 == 0:
@@ -212,8 +216,14 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
          middle_col = ni / 2 + 1
 
       for i in range(int(middle_col)):
-         θ[:, ni-i-1] = θ[:, i]
+         temp[:, ni-i-1] = temp[:, i]
 
+      exner = (1.0 - gravity / (cpd * temp) * geom.X3)
+      ρ = p0 / (Rd * temp) * exner**(cvd / Rd)
+
+      # Here θ is energy
+      θ = cvd*temp*exner + gravity*geom.X3 # We did not add 0.5*(u^2+w^2) because its zero
+    
    elif param.case_number == 3:
       # Colliding bubbles
 
@@ -277,11 +287,23 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
    else:
       exner = (1.0 - gravity / (cpd * θ) * geom.X3)
 
-   ρ = p0 / (Rd * θ) * exner**(cvd / Rd)
+   # ρ = p0 / (Rd * θ) * exner**(cvd / Rd)
 
    Q[idx_2d_rho,:,:]       = ρ
    Q[idx_2d_rho_u,:,:]     = ρ * uu
    Q[idx_2d_rho_w,:,:]     = ρ * ww
    Q[idx_2d_rho_theta,:,:] = ρ * θ
+
+   if param.case_number == 2:
+      theta_base    = numpy.ones_like(geom.X1)*param.bubble_theta
+      exner_base    = (1.0 - gravity / (cpd * theta_base) * geom.X3)
+      rho_base      = p0 / (Rd * theta_base) * exner_base**(cvd / Rd)
+      E_base        = cvd*theta_base*exner_base + gravity*geom.X3    # We did not add 0.5*(u^2+w^2) because its zero
+      Q_tilda = numpy.zeros_like(Q)
+      Q_tilda[idx_2d_rho] = rho_base
+      Q_tilda[idx_2d_rho_theta] = rho_base * E_base
+
+      Q = Q - Q_tilda
+
 
    return Q

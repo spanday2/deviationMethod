@@ -4,7 +4,6 @@ from typing      import Callable
 
 from mpi4py      import MPI
 import numpy
-import pdb
 
 from common.program_options import Configuration
 from .integrator            import Integrator, SolverInfo
@@ -70,19 +69,16 @@ class Epi(Integrator):
       if len(self.previous_Q) < self.n_prev:
          self.previous_Q.appendleft(Q)
          self.previous_rhs.appendleft(self.rhs(Q))
-         pdb.set_trace()
+
          dt /= self.init_substeps
          for i in range(self.init_substeps):
             Q = self.init_method.step(Q, dt)
          return Q
 
-      Q_tilda = Q
-      deltaQ  = Q - Q_tilda
-
       # Regular EPI step
-      rhs = self.rhs(deltaQ, Q_tilda)
+      rhs = self.rhs(Q)
 
-      def matvec_handle(v): return matvec_fun(v, dt, deltaQ, Q_tilda, rhs, self.rhs, self.jacobian_method)
+      def matvec_handle(v): return matvec_fun(v, dt, Q, rhs, self.rhs, self.jacobian_method)
 
       vec = numpy.zeros((self.max_phi+1, rhs.size))
       vec[1,:] = rhs.flatten()
@@ -121,8 +117,6 @@ class Epi(Integrator):
          self.previous_Q.appendleft(Q)
          self.previous_rhs.pop()
          self.previous_rhs.appendleft(rhs)
-      
-      deltaQnew = deltaQ + numpy.reshape(phiv, deltaQ.shape) * dt
 
       # Update solution
-      return deltaQnew + Q_tilda
+      return Q + numpy.reshape(phiv, Q.shape) * dt

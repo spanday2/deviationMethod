@@ -67,8 +67,6 @@ class RhsBundle:
             self.full = generate_rhs(
                rhs_bubble, geom, operators, param.nbsolpts, param.nb_elements_horizontal, param.nb_elements_vertical)
 
-            self.newfull = lambda deltaQ, Q_tilda: rhs_bubble(deltaQ, Q_tilda, geom, operators, param.nbsolpts, param.nb_elements_horizontal, param.nb_elements_vertical) 
-
          self.implicit = generate_rhs(
             rhs_bubble_implicit, geom, operators, param.nbsolpts, param.nb_elements_horizontal,
             param.nb_elements_vertical)
@@ -85,4 +83,4 @@ class RhsBundle:
          else:
             self.full = generate_rhs(
                rhs_sw, geom, operators, metric, topo, ptopo, param.nbsolpts, param.nb_elements_horizontal)
-            self.newfull = lambda deltaQ, Q_tilda: rhs_sw(deltaQ, Q_tilda, geom, operators, metric, topo, ptopo, param.nbsolpts, param.nb_elements_horizontal) 
+

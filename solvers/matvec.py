@@ -14,36 +14,36 @@ class MatvecOp:
       return self.matvec(vec)
 
 class MatvecOpBasic(MatvecOp):
-   def __init__(self, dt: float, deltaQ: numpy.ndarray, Q_tilda: numpy.ndarray, rhs_vec: numpy.ndarray, rhs_handle: Callable) -> None:
+   def __init__(self, dt: float, Q: numpy.ndarray, rhs_vec: numpy.ndarray, rhs_handle: Callable) -> None:
       super().__init__(
-         lambda vec: matvec_fun(vec, dt, deltaQ, Q_tilda, rhs_vec, rhs_handle),
-         deltaQ.dtype, deltaQ.shape)
+         lambda vec: matvec_fun(vec, dt, Q, rhs_vec, rhs_handle),
+         Q.dtype, Q.shape)
 
-def matvec_fun(vec: numpy.ndarray, dt: float, deltaQ: numpy.ndarray, Q_tilda: numpy.ndarray, rhs: numpy.ndarray, rhs_handle, method='complex') \
+def matvec_fun(vec: numpy.ndarray, dt: float, Q: numpy.ndarray, rhs: numpy.ndarray, rhs_handle, method='complex') \
    -> numpy.ndarray:
    if method == 'complex':
       # Complex-step approximation
       epsilon = math.sqrt(numpy.finfo(float).eps)
-      delQvec = deltaQ + 1j * epsilon * numpy.reshape(vec, deltaQ.shape)
-      jac = dt * (rhs_handle(delQvec, Q_tilda) / epsilon).imag
+      Qvec = Q + 1j * epsilon * numpy.reshape(vec, Q.shape)
+      jac = dt * (rhs_handle(Qvec) / epsilon).imag
    else:
       # Finite difference approximation
       epsilon = math.sqrt(numpy.finfo(numpy.float32).eps)
-      delQvec = deltaQ + epsilon * numpy.reshape(vec, deltaQ.shape)
-      jac = dt * ( rhs_handle(delQvec, Q_tilda) - rhs) / epsilon
+      Qvec = Q + epsilon * numpy.reshape(vec, Q.shape)
+      jac = dt * ( rhs_handle(Qvec) - rhs) / epsilon
 
    return jac.flatten()
 
 class MatvecOpRat(MatvecOp):
-   def __init__(self, dt: float, deltaQ: numpy.ndarray, Q_tilda: numpy.ndarray, rhs_vec: numpy.ndarray, rhs_handle: Callable) -> None:
+   def __init__(self, dt: float, Q: numpy.ndarray, rhs_vec: numpy.ndarray, rhs_handle: Callable) -> None:
       super().__init__(
-         lambda vec: matvec_rat(vec, dt, deltaQ, Q_tilda, rhs_vec, rhs_handle),
-         deltaQ.dtype, deltaQ.shape)
+         lambda vec: matvec_rat(vec, dt, Q, rhs_vec, rhs_handle),
+         Q.dtype, Q.shape)
 
-def matvec_rat(vec: numpy.ndarray, dt: float, deltaQ: numpy.ndarray, Q_tilda: numpy.ndarray, rhs: numpy.ndarray, rhs_handle: Callable) -> numpy.ndarray:
+def matvec_rat(vec: numpy.ndarray, dt: float, Q: numpy.ndarray, rhs: numpy.ndarray, rhs_handle: Callable) -> numpy.ndarray:
 
-   epsilon = math.sqrt(numpy.finfo(numpy.float32).eps) 
-   delQvec = deltaQ + epsilon * numpy.reshape(vec, deltaQ.shape)
-   jac = dt * ( rhs_handle(delQvec, Q_tilda) - rhs) / epsilon
+   epsilon = math.sqrt(numpy.finfo(numpy.float32).eps)
+   Qvec = Q + epsilon * numpy.reshape(vec, Q.shape)
+   jac = dt * ( rhs_handle(Qvec) - rhs) / epsilon
 
    return vec - 0.5 * jac.flatten()

@@ -5,7 +5,6 @@
 import math
 from typing import Optional
 import sys
-import pdb
 
 from mpi4py import MPI
 import numpy
@@ -74,7 +73,7 @@ def main(argv) -> int:
       else:
          t += param.dt
 
-      step += 1  
+      step += 1
 
       if MPI.COMM_WORLD.rank == 0: print(f'\nStep {step} of {nb_steps + starting_step}')
 
@@ -189,7 +188,7 @@ def create_time_integrator(param: Configuration,
    if param.time_integrator[:3] == 'epi' and param.time_integrator[3:].isdigit():
       order = int(param.time_integrator[3:])
       if MPI.COMM_WORLD.rank == 0: print(f'Running with EPI{order}')
-      return Epi(param, order, rhs.newfull, init_substeps=10)
+      return Epi(param, order, rhs.full, init_substeps=10)
    if param.time_integrator[:5] == 'srerk' and param.time_integrator[5:].isdigit():
       order = int(param.time_integrator[5:])
       if MPI.COMM_WORLD.rank == 0: print(f'Running with SRERK{order}')
@@ -206,7 +205,7 @@ def create_time_integrator(param: Configuration,
 
    # --- Rosenbrock
    if param.time_integrator == 'ros2':
-      return Ros2(param, rhs.newfull, preconditioner=preconditioner)
+      return Ros2(param, rhs.full, preconditioner=preconditioner)
 
    # --- Rosenbrock - Exponential
    if param.time_integrator == 'rosexp2':
@@ -237,7 +236,6 @@ def create_time_integrator(param: Configuration,
       return StrangSplitting(param, stepper1, stepper2)
 
    raise ValueError(f'Time integration method {param.time_integrator} not supported')
-      
 
 def check_for_nan(Q):
    """ Raise an exception if there are NaNs in the input """
