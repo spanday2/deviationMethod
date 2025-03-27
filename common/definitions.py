@@ -2,14 +2,14 @@ nbfaces     = 6
 
 day_in_secs  = 24.0 * 3600.0    # Days in seconds
 
-gravity      = 9.80616        # Gravitational acceleration (m s^-2)
+gravity      = 1 #9.80616        # Gravitational acceleration (m s^-2)
 
 p0  = 100000.     # reference pressure (Pa)
 Rd  = 287.05  # J K-1 kg-1 ! gas constant for dry air
 cpd = 1005.46
 cvd = (cpd - Rd)  # chal. spec. air sec (volume constant) [J kg-1 K-1]
 kappa = Rd / cpd
-heat_capacity_ratio = cpd / cvd
+heat_capacity_ratio = 1.4 #cpd / cvd
 
 # Indices for the shallow water model variables
 idx_h   = 0

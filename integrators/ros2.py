@@ -1,6 +1,5 @@
 from time import time
 from typing import Callable
-import pdb
 
 import numpy
 from mpi4py import MPI
@@ -21,13 +20,11 @@ class Ros2(Integrator):
       self.gmres_restart  = param.gmres_restart
 
    def __prestep__(self, Q: numpy.ndarray, dt: float) -> None:
-      Q_tilda = Q
-      deltaQ  = Q - Q_tilda
-      rhs = self.rhs_handle(deltaQ, Q_tilda)
-      self.deltaQ_flat = numpy.ravel(deltaQ)
-      self.A = MatvecOpRat(dt, deltaQ, Q_tilda, rhs, self.rhs_handle)
-      self.b = self.A(self.deltaQ_flat) + numpy.ravel(rhs) * dt + 1e-20
-      
+      rhs = self.rhs_handle(Q)
+      self.Q_flat = numpy.ravel(Q)
+      self.A = MatvecOpRat(dt, Q, rhs, self.rhs_handle)
+      self.b = self.A(self.Q_flat) + numpy.ravel(rhs) * dt
+
    def __step__(self, Q: numpy.ndarray, dt: float):
 
       maxiter = 20000 // self.gmres_restart
@@ -35,8 +32,8 @@ class Ros2(Integrator):
          maxiter = 200 // self.gmres_restart
 
       t0 = time()
-      deltaQnew, norm_r, norm_b, num_iter, flag, residuals = fgmres(
-         self.A, self.b, x0=self.deltaQ_flat, tol=self.tol, restart=self.gmres_restart, maxiter=maxiter,
+      Qnew, norm_r, norm_b, num_iter, flag, residuals = fgmres(
+         self.A, self.b, x0=self.Q_flat, tol=self.tol, restart=self.gmres_restart, maxiter=maxiter,
          preconditioner=self.preconditioner,
          verbose=self.verbose_solver)
       t1 = time()
@@ -45,9 +42,9 @@ class Ros2(Integrator):
 
       if MPI.COMM_WORLD.rank == 0:
          result_type = 'convergence' if flag == 0 else 'stagnation/interruption'
-         print(f'FGMRES {result_type} at iteration {num_iter} in {t1 - t0:4.3f} s to a solution with'
-               f' relative residual {norm_r/norm_b : .2e}')
+         # print(f'FGMRES {result_type} at iteration {num_iter} in {t1 - t0:4.3f} s to a solution with'
+               # f' relative residual {norm_r/norm_b : .2e}')
 
       self.failure_flag = flag
-      Qnew = deltaQnew + Q.flatten()
+
       return numpy.reshape(Qnew, Q.shape)

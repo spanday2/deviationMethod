@@ -35,9 +35,49 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       pressure                  = (heat_capacity_ratio-1)*(Q_total[RHO_THETA] - 0.5*rho*(u**2+w**2) - rho*gravity*geom.X3)
       exner                     = (pressure/p0)**(Rd/cpd)
       Theta                     =  1/(cvd*exner)*(e - 0.5*(u**2 + w**2) - gravity*geom.X3)
-
+      
+      c = numpy.sqrt(heat_capacity_ratio*pressure / rho)
+      M = (numpy.sqrt(u**2+w**2) / c).max()
+      array = numpy.array([f"{M:.5e}"])   
+      # Open the file in append mode and write the new values
+      with open("std_Roe_wb.txt", "a") as file:
+         # Convert array to string and append to the file
+         file.write(" ".join(map(str, array)) + "\n")
       # Plot potential temperature
-      image_field(geom, Theta, filename, 303.1, 303.7, 7)
+      #image_field(geom, Theta, filename, 303.1, 303.7, 7)
+
+   elif param.case_number == 666:
+      # Calculate the base state
+      gamma                     = 1.4
+      c                         = 1 / (gamma - 1)
+      g                         = 1
+      ρ0                        = 1
+      rho_base                  = ρ0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
+      pressure_base             = p0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
+      E_base                    = c*(pressure_base / rho_base) + g*geom.X3
+      Q_tilda                   = numpy.zeros_like(Q)
+      Q_tilda[RHO]              = rho_base
+      Q_tilda[RHO_THETA]        = rho_base * E_base
+
+      # Calculate the total Q vector
+      Q_total                   = Q + Q_tilda
+
+      # Convert Energy to potential temperature
+      e                         = Q_total[RHO_THETA,:,:] / Q_total[RHO,:,:]
+      w                         = Q_total[RHO_W,:,:] / Q_total[RHO,:,:]
+      u                         = Q_total[RHO_U,:,:] / Q_total[RHO,:,:]
+      rho                       = Q_total[RHO]
+      pressure                  = (gamma-1)*(Q_total[RHO_THETA] - 0.5*rho*(u**2+w**2) - rho*g*geom.X3)
+      
+      c = numpy.sqrt(gamma*pressure / rho)
+      M = (numpy.sqrt(u**2+w**2) / c).max()
+      print("{:.18f}".format(M))
+      array = numpy.array([f"{M:.16e}"])   
+      # Open the file in append mode and write the new values
+      with open("std_Roe_wb.txt", "a") as file:
+         # Convert array to string and append to the file
+         file.write(" ".join(map(str, array)) + "\n")
+
 
    elif param.case_number == 3:
       image_field(geom, (Q[RHO_THETA,:,:] / Q[RHO,:,:]), filename, 303., 303.7, 8)

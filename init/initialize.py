@@ -163,8 +163,8 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
    # Initial state at rest, isentropic, hydrostatic
    nk, ni = geom.X1.shape
    Q = numpy.zeros((nb_equations, nk, ni))
-   uu    = numpy.zeros_like(geom.X1)
-   ww    = numpy.zeros_like(geom.X1)
+   uu    = numpy.zeros_like(geom.X1) 
+   ww    = numpy.zeros_like(geom.X1) 
    exner = numpy.zeros_like(geom.X1)
    θ = numpy.ones_like(geom.X1)
 
@@ -219,10 +219,25 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
          temp[:, ni-i-1] = temp[:, i]
 
       exner = (1.0 - gravity / (cpd * temp) * geom.X3)
-      ρ = p0 / (Rd * temp) * exner**(cvd / Rd)
+      ρ = 100000 / (Rd * temp) * exner**(cvd / Rd)
 
       # Here θ is energy
-      θ = cvd*temp*exner + gravity*geom.X3 # We did not add 0.5*(u^2+w^2) because its zero
+      θ = cvd*temp*exner + gravity*geom.X3   # We did not add 0.5*(u^2+w^2) because its zero
+      
+   elif param.case_number == 666:
+      # Gaussian bubble
+
+      g        = 1
+      gamma    = 1.4
+      ρ0       = 1
+      p0       = 1
+      c        = 1 / (gamma - 1)
+      ρ        = ρ0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
+      pressure = p0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
+
+      # Here θ is energy
+      θ        = c*(pressure/ρ) + g*geom.X3 
+   
     
    elif param.case_number == 3:
       # Colliding bubbles
@@ -295,15 +310,31 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
    Q[idx_2d_rho_theta,:,:] = ρ * θ
 
    if param.case_number == 2:
-      theta_base    = numpy.ones_like(geom.X1)*param.bubble_theta
-      exner_base    = (1.0 - gravity / (cpd * theta_base) * geom.X3)
-      rho_base      = p0 / (Rd * theta_base) * exner_base**(cvd / Rd)
-      E_base        = cvd*theta_base*exner_base + gravity*geom.X3    # We did not add 0.5*(u^2+w^2) because its zero
-      Q_tilda = numpy.zeros_like(Q)
-      Q_tilda[idx_2d_rho] = rho_base
+      theta_base                = numpy.ones_like(geom.X1)*param.bubble_theta
+      exner_base                = (1.0 - gravity / (cpd * theta_base) * geom.X3)
+      rho_base                  = 100000 / (Rd * theta_base) * exner_base**(cvd / Rd)
+      E_base                    = cvd*theta_base*exner_base + gravity*geom.X3    # We did not add 0.5*(u^2+w^2) because its zero
+      Q_tilda                   = numpy.zeros_like(Q)
+      Q_tilda[idx_2d_rho]       = rho_base
       Q_tilda[idx_2d_rho_theta] = rho_base * E_base
 
-      Q = Q - Q_tilda
+      Q                         = Q - Q_tilda
+   
+   
+   if param.case_number == 666:
+      gamma                     = 1.4
+      c                         = 1 / (gamma - 1)
+      g                         = 1
+      ρ0                        = 1
+      rho_base                  = ρ0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
+      pressure_base             = p0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
+      E_base                    = c*(pressure_base / rho_base) + g*geom.X3
+      Q_tilda                   = numpy.zeros_like(Q)
+      Q_tilda[idx_2d_rho]       = rho_base
+      Q_tilda[idx_2d_rho_theta] = rho_base * E_base
+
+      Q                         = Q - Q_tilda
+     
 
 
    return Q
