@@ -225,7 +225,7 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
       θ = cvd*temp*exner + gravity*geom.X3   # We did not add 0.5*(u^2+w^2) because its zero
       
    elif param.case_number == 666:
-      # Gaussian bubble
+      # hydrostatic equilibrium
 
       g        = 1
       gamma    = 1.4
