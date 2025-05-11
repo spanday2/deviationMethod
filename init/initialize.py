@@ -12,6 +12,7 @@ from init.shallow_water_test import case_galewsky, case_matsuno, case_unsteady_z
                                     williamson_case1, williamson_case2, williamson_case5, williamson_case6
 
 from geometry                import Cartesian2D, CubedSphere
+from common.graphx           import image_field
 
 class Topo:
    def __init__(self, hsurf, dzdx1, dzdx2, hsurf_itf_i, hsurf_itf_j):
@@ -228,16 +229,27 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
       # hydrostatic equilibrium
 
       g        = 1
-      gamma    = 1.4
+      gamma    = 5/3
       ρ0       = 1
       p0       = 1
       c        = 1 / (gamma - 1)
+      z        = geom.X3
+
       ρ        = ρ0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
-      pressure = p0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
+      pressure_base = p0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
+
+      # --- Add Gaussian disturbance to pressure
+      A     = 1e-15                   # Amplitude of pressure disturbance
+      z_bar = 0.5 * z.max()          # Center of Gaussian (mid-height)
+      δp    = A * numpy.exp(-100 * (z - z_bar)**2)
+
+      pressure = pressure_base + δp
 
       # Here θ is energy
-      θ        = c*(pressure/ρ) + g*geom.X3 
-   
+      θ        = c*(pressure/ρ) + g*geom.X3
+    
+
+
     
    elif param.case_number == 3:
       # Colliding bubbles
@@ -285,7 +297,7 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
             if r <= 1.:
                θ[k,i] += 0.5 * θc * (1. + numpy.cos(numpy.pi * r))
 
-      geom.make_mountain(mountain_type='step')
+      # geom.make_mountain(mountain_type='step')
 
    if param.case_number == 0:
       N_star = 0.01
@@ -302,7 +314,7 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
    else:
       exner = (1.0 - gravity / (cpd * θ) * geom.X3)
 
-   # ρ = p0 / (Rd * θ) * exner**(cvd / Rd)
+   # ρ = 100000 / (Rd * θ) * exner**(cvd / Rd)
 
    Q[idx_2d_rho,:,:]       = ρ
    Q[idx_2d_rho_u,:,:]     = ρ * uu
@@ -322,10 +334,11 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
    
    
    if param.case_number == 666:
-      gamma                     = 1.4
+      gamma                     = 5/3
       c                         = 1 / (gamma - 1)
       g                         = 1
       ρ0                        = 1
+      p0                        = 1
       rho_base                  = ρ0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
       pressure_base             = p0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
       E_base                    = c*(pressure_base / rho_base) + g*geom.X3
@@ -334,7 +347,8 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
       Q_tilda[idx_2d_rho_theta] = rho_base * E_base
 
       Q                         = Q - Q_tilda
-     
+      
+      
 
 
    return Q

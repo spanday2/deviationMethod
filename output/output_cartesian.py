@@ -1,5 +1,6 @@
 import os
 import numpy
+import pdb
 
 from common.definitions     import idx_2d_rho       as RHO,           \
                                    idx_2d_rho_w     as RHO_W,         \
@@ -36,22 +37,15 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       exner                     = (pressure/p0)**(Rd/cpd)
       Theta                     =  1/(cvd*exner)*(e - 0.5*(u**2 + w**2) - gravity*geom.X3)
       
-      c = numpy.sqrt(heat_capacity_ratio*pressure / rho)
-      M = (numpy.sqrt(u**2+w**2) / c).max()
-      array = numpy.array([f"{M:.5e}"])   
-      # Open the file in append mode and write the new values
-      # with open("std_Roe_wb.txt", "a") as file:
-      #    # Convert array to string and append to the file
-      #    file.write(" ".join(map(str, array)) + "\n")
-      # Plot potential temperature
       image_field(geom, Theta, filename, 303.1, 303.7, 7)
 
    elif param.case_number == 666:
       # Calculate the base state
-      gamma                     = 1.4
+      gamma                     = 5/3
       c                         = 1 / (gamma - 1)
       g                         = 1
       ρ0                        = 1
+      p0                        = 1
       rho_base                  = ρ0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
       pressure_base             = p0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
       E_base                    = c*(pressure_base / rho_base) + g*geom.X3
@@ -74,7 +68,7 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       print("{:.18f}".format(M))
       array = numpy.array([f"{M:.16e}"])   
       # Open the file in append mode and write the new values
-      with open("std_Roe_wb.txt", "a") as file:
+      with open("april9.txt", "a") as file:
          # Convert array to string and append to the file
          file.write(" ".join(map(str, array)) + "\n")
 
