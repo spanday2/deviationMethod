@@ -185,7 +185,7 @@ def plot_array(array, filename=None):
    MPI.COMM_WORLD.Barrier()
 
 def image_field(geom: 'Cartesian2D', field: numpy.ndarray, filename: str, vmin: float, vmax: float, n: int, \
-                label: str = 'K', colormap: str = 'jet'):
+                label: str = 'W', colormap: str = 'jet'):
    fig, ax = matplotlib.pyplot.subplots()
 
    if not geom.xperiodic:

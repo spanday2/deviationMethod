@@ -3,6 +3,7 @@ from typing  import Callable, Optional, Union
 
 from mpi4py import MPI
 import numpy
+import pdb
 
 from common.program_options import Configuration
 from geometry               import Cartesian2D, CubedSphere, Geometry, Metric, Metric3DTopo, DFROperators
@@ -52,7 +53,7 @@ class OutputManager:
             self.output_file_name = lambda step_id: \
                f'{self.param.output_dir}/bubble_{self.param.case_number}_{step_id:08d}'
             self.step_function = lambda Q, step_id: \
-               output_step(Q, self.geometry, self.param, self.output_file_name(step_id))
+               output_step(Q, self.geometry, self.param, self.output_file_name(step_id), step_id)
 
       if param.stat_freq > 0:
          if isinstance(self.geometry, CubedSphere):

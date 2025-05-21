@@ -11,7 +11,7 @@ from common.graphx          import image_field
 from common.program_options import Configuration
 from geometry               import Geometry
 
-def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename: str) -> None:
+def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename: str, step_id) -> None:
    if param.case_number == 0:
       image_field(geom, (Q[RHO_W,:,:]), filename, -1, 1, 25, label='w (m/s)', colormap='bwr')
 
@@ -68,9 +68,11 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       print("{:.18f}".format(M))
       array = numpy.array([f"{M:.16e}"])   
       # Open the file in append mode and write the new values
-      with open("april9.txt", "a") as file:
+      with open("april21_b_400.txt", "a") as file:
          # Convert array to string and append to the file
          file.write(" ".join(map(str, array)) + "\n")
+      if step_id > 0:
+         image_field(geom, w, filename, numpy.min(w), numpy.max(w), 20)
 
 
    elif param.case_number == 3:
