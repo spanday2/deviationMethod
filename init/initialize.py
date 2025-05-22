@@ -196,34 +196,48 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
    elif param.case_number == 2:
       # Gaussian bubble
 
-      A = 0.5
-      a = 50
-      s = 100
-      x0 = 500
-      z0 = 260
-      r = numpy.sqrt( (geom.X1-x0)**2 + (geom.X3-z0)**2 )
+      g0    = 1099.04373
+      z_max = 15000
+      ky    = (2 * numpy.pi) / z_max 
+      gy    = g0 * numpy.sin(ky * geom.X3)
 
-      temp  = numpy.ones_like(geom.X1)
-      temp *= param.bubble_theta
+      p0        = 100000
+      gamma     = 5/3
+      c1        = gamma / (gamma - 1)
+      c2        = 1 / c1
+      c3        = 1 / gamma 
+      c4        = 1 / (gamma - 1)
+      A0        = 216.5
+      amplitude = 0.001
+      x0        = 5000
+      z0        = 1875
+      r0        = 1250
+      r         = numpy.sqrt( (geom.X1-x0)**2 + (geom.X3-z0)**2 )
+      
+      A         = numpy.ones_like(geom.X1)
+      A         = numpy.where(r <= r0,
+                      A0 * ( 1 + amplitude*numpy.cos((numpy.pi / 2)* (r / r0))**2 ),
+                      A0)
 
-      temp = numpy.where(r <= a,
-                      temp + A,
-                      temp + A * numpy.exp(-((r-a)/s)**2))
+      pressure  = (p0**c2 + (c2*g0) / (c3*ky) * (1 - numpy.cos(ky*geom.X3))) ** c1
+
+      ρ         = (pressure / A) ** c3
+
+      θ         = c4*(pressure/ρ) + gy*geom.X3
+
+
+      
 
       # Enforce mirror symmetry
-      if ni % 2 == 0:
-         middle_col = ni / 2
-      else:
-         middle_col = ni / 2 + 1
+      # if ni % 2 == 0:
+      #    middle_col = ni / 2
+      # else:
+      #    middle_col = ni / 2 + 1
 
-      for i in range(int(middle_col)):
-         temp[:, ni-i-1] = temp[:, i]
+      # for i in range(int(middle_col)):
+      #    temp[:, ni-i-1] = temp[:, i]
 
-      exner = (1.0 - gravity / (cpd * temp) * geom.X3)
-      ρ = 100000 / (Rd * temp) * exner**(cvd / Rd)
 
-      # Here θ is energy
-      θ = cvd*temp*exner + gravity*geom.X3   # We did not add 0.5*(u^2+w^2) because its zero
       
    elif param.case_number == 666:
       # hydrostatic equilibrium
@@ -253,7 +267,6 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
     
    elif param.case_number == 3:
       # Colliding bubbles
-
       A = 0.5
       a = 150
       s = 50
@@ -327,8 +340,8 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
       rho_base                  = 100000 / (Rd * theta_base) * exner_base**(cvd / Rd)
       E_base                    = cvd*theta_base*exner_base + gravity*geom.X3    # We did not add 0.5*(u^2+w^2) because its zero
       Q_tilda                   = numpy.zeros_like(Q)
-      Q_tilda[idx_2d_rho]       = rho_base
-      Q_tilda[idx_2d_rho_theta] = rho_base * E_base
+      # Q_tilda[idx_2d_rho]       = rho_base
+      # Q_tilda[idx_2d_rho_theta] = rho_base * E_base
 
       Q                         = Q - Q_tilda
    

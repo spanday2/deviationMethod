@@ -17,27 +17,35 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
 
    elif param.case_number <= 2:
       # Calculate the base state
-      theta_base                = numpy.ones_like(geom.X1)*param.bubble_theta
-      exner_base                = (1.0 - gravity / (cpd * theta_base) * geom.X3)
-      rho_base                  = p0 / (Rd * theta_base) * exner_base**(cvd / Rd)
-      E_base                    = cvd*theta_base*exner_base + gravity*geom.X3    # We did not add 0.5*(u^2+w^2) because its zero
+      # theta_base                = numpy.ones_like(geom.X1)*param.bubble_theta
+      # exner_base                = (1.0 - gravity / (cpd * theta_base) * geom.X3)
+      # rho_base                  = p0 / (Rd * theta_base) * exner_base**(cvd / Rd)
+      # E_base                    = cvd*theta_base*exner_base + gravity*geom.X3    # We did not add 0.5*(u^2+w^2) because its zero
       Q_tilda                   = numpy.zeros_like(Q)
-      Q_tilda[RHO]              = rho_base
-      Q_tilda[RHO_THETA]        = rho_base * E_base
+      # Q_tilda[RHO]              = rho_base
+      # Q_tilda[RHO_THETA]        = rho_base * E_base
 
       # Calculate the total Q vector
       Q_total                   = Q + Q_tilda
+
+      #varying gravity
+      g0    = 1099.04373
+      z_max = 15000
+      ky    = (2 * numpy.pi) / z_max 
+      gy    = g0 * numpy.sin(ky * geom.X3)
 
       # Convert Energy to potential temperature
       e                         = Q_total[RHO_THETA,:,:] / Q_total[RHO,:,:]
       w                         = Q_total[RHO_W,:,:] / Q_total[RHO,:,:]
       u                         = Q_total[RHO_U,:,:] / Q_total[RHO,:,:]
       rho                       = Q_total[RHO]
-      pressure                  = (heat_capacity_ratio-1)*(Q_total[RHO_THETA] - 0.5*rho*(u**2+w**2) - rho*gravity*geom.X3)
-      exner                     = (pressure/p0)**(Rd/cpd)
-      Theta                     =  1/(cvd*exner)*(e - 0.5*(u**2 + w**2) - gravity*geom.X3)
+      pressure                  = (heat_capacity_ratio-1)*(Q_total[RHO_THETA] - 0.5*rho*(u**2+w**2) - rho*gy*geom.X3)
+      # exner                     = (pressure/p0)**(Rd/cpd)
+      # Theta                     =  1/(cvd*exner)*(e - 0.5*(u**2 + w**2) - gravity*geom.X3)
+      entro = (pressure / rho**heat_capacity_ratio)
+      diff = (entro - 216.5)/entro
       
-      image_field(geom, Theta, filename, 303.1, 303.7, 7)
+      image_field(geom, diff, filename, numpy.min(diff), numpy.max(diff), 20)
 
    elif param.case_number == 666:
       # Calculate the base state
@@ -68,11 +76,11 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       print("{:.18f}".format(M))
       array = numpy.array([f"{M:.16e}"])   
       # Open the file in append mode and write the new values
-      with open("april21_b_400.txt", "a") as file:
-         # Convert array to string and append to the file
-         file.write(" ".join(map(str, array)) + "\n")
-      if step_id > 0:
-         image_field(geom, w, filename, numpy.min(w), numpy.max(w), 20)
+      # with open("april21_b_400.txt", "a") as file:
+      #    # Convert array to string and append to the file
+      #    file.write(" ".join(map(str, array)) + "\n")
+      # if step_id > 0:
+      #    image_field(geom, w, filename, numpy.min(w), numpy.max(w), 20)
 
 
    elif param.case_number == 3:

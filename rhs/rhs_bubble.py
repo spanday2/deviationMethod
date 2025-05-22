@@ -14,15 +14,15 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
    #------------------------------------------------------------------------------------------------------------------------------
    gamma                     = 5/3
    c                         = 1 / (gamma - 1)
-   g                         = 1
-   ρ0                        = 1
-   p0                        = 1
-   rho_base                  = ρ0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
-   pressure_base             = p0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
-   E_base                    = c*(pressure_base / rho_base) + g*geom.X3
+   # g                         = 1
+   # ρ0                        = 1
+   # p0                        = 1
+   # rho_base                  = ρ0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
+   # pressure_base             = p0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
+   # E_base                    = c*(pressure_base / rho_base) + g*geom.X3
    Q_tilda                   = numpy.zeros_like(Q)
-   Q_tilda[idx_2d_rho]       = rho_base
-   Q_tilda[idx_2d_rho_theta] = rho_base * E_base
+   # Q_tilda[idx_2d_rho]       = rho_base
+   # Q_tilda[idx_2d_rho_theta] = rho_base * E_base
   
 
    Q_total = Q + Q_tilda
@@ -51,6 +51,12 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
       ifaces_var, t_ifaces_var   = [numpy.empty((nb_equations, nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype) for _ in range(2)]
       ifaces_pres                = numpy.empty((nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
 
+      # Varying gravity
+      g0    = 1099.04373
+      z_max = 15000
+      ky    = (2 * numpy.pi) / z_max 
+      gy    = g0 * numpy.sin(ky * geom.X3)
+
       # --- Unpack physical variables
       rho      = Qv[idx_2d_rho,:,:]
       uu       = Qv[idx_2d_rho_u,:,:] / rho
@@ -58,7 +64,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
       ee       = Qv[idx_2d_rho_theta,:,:] / rho
       height   = geom.X3
 
-      pressure = (heat_capacity_ratio-1) * (Qv[idx_2d_rho_theta, :, :] - 0.5*rho*(uu**2 + ww**2) - rho*gravity*height)
+      pressure = (heat_capacity_ratio-1) * (Qv[idx_2d_rho_theta, :, :] - 0.5*rho*(uu**2 + ww**2) - rho*gy*height)
       # pressure = (heat_capacity_ratio-1) * (Qv[idx_2d_rho_theta, :, :] - rho*gravity*height)
       
 
@@ -95,39 +101,9 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
       # --- Bondary treatement
 
       # zeros flux BCs everywhere ...
-      kfaces_flux[:,0,0,:]  = 0.0
-      kfaces_flux[:,-1,1,:] = 0.0
-
-      # # Apply Dirichlet boundaries in Z (top and bottom)
-      # Q_bottom = numpy.zeros((4, nbsolpts * nb_elements_x), dtype=numpy.float64)
-      # Q_bottom[0] = 1
-      # Q_bottom[3] = 1 / ((5/3) - 1)
-      # Q_top = numpy.zeros((4, nbsolpts * nb_elements_x), dtype=numpy.float64)
-      # Q_top[0] = numpy.exp(-2)
-      # Q_top[3] = (1 / ((5/3) - 1) + 2) * numpy.exp(-2)
-      # rho_b = Q_bottom[idx_2d_rho]
-      # rho_t = Q_top[idx_2d_rho]
-      # u_b = Q_bottom[idx_2d_rho_u] / rho_b
-      # w_b = Q_bottom[idx_2d_rho_w] / rho_b
-      # e_b = Q_bottom[idx_2d_rho_theta] / rho_b
-      # u_t = Q_top[idx_2d_rho_u] / rho_t
-      # w_t = Q_top[idx_2d_rho_w] / rho_t
-      # e_t = Q_top[idx_2d_rho_theta] / rho_t
-      # h_b = 0
-      # h_t = 2
-      # p_b = (heat_capacity_ratio - 1) * (Q_bottom[idx_2d_rho_theta] - rho_b * gravity * h_b)
-      # p_t = (heat_capacity_ratio - 1) * (Q_top[idx_2d_rho_theta] - rho_t * gravity * h_t)
-
-      # kfaces_flux[idx_2d_rho, 0, 0, :]       = Q_bottom[idx_2d_rho_u]
-      # kfaces_flux[idx_2d_rho_u, 0, 0, :]     = Q_bottom[idx_2d_rho_u] * w_b
-      # kfaces_flux[idx_2d_rho_w, 0, 0, :]     = Q_bottom[idx_2d_rho_u] * w_b + p_b
-      # kfaces_flux[idx_2d_rho_theta, 0, 0, :] = (Q_bottom[idx_2d_rho_theta] + p_b) * w_b
-
-      # kfaces_flux[idx_2d_rho, -1, 1, :]       = Q_top[idx_2d_rho_u]
-      # kfaces_flux[idx_2d_rho_u, -1, 1, :]     = Q_top[idx_2d_rho_u] * w_t 
-      # kfaces_flux[idx_2d_rho_w, -1, 1, :]     = Q_top[idx_2d_rho_u] * w_t + p_t
-      # kfaces_flux[idx_2d_rho_theta, -1, 1, :] = (Q_top[idx_2d_rho_theta, :] + p_t) * w_t
-
+      if not geom.zperiodic:
+         kfaces_flux[:,0,0,:]  = 0.0
+         kfaces_flux[:,-1,1,:] = 0.0
 
       # Skip periodic faces
       if not geom.xperiodic:
@@ -135,13 +111,14 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
          ifaces_flux[:,-1,:,1] = 0.0
 
       # except for momentum eqs where pressure is extrapolated to BCs.
-      kfaces_flux[idx_2d_rho_w, 0, 0, :] = kfaces_pres[ 0, 0, :]
-      kfaces_flux[idx_2d_rho_w,-1, 1, :] = kfaces_pres[-1, 1, :]
+      # kfaces_flux[idx_2d_rho_w, 0, 0, :] = kfaces_pres[ 0, 0, :]
+      # kfaces_flux[idx_2d_rho_w,-1, 1, :] = kfaces_pres[-1, 1, :]
 
       # ifaces_flux[idx_2d_rho_u, 0,:,0] = ifaces_pres[0,:,0]  # TODO : pour les cas théoriques seulement ...
       # ifaces_flux[idx_2d_rho_u,-1,:,1] = ifaces_pres[-1,:,1]
 
       # --- Common AUSM+ up fluxes
+      start = 0 if geom.zperiodic else 1
       for itf in range(1, nb_interfaces_z - 1):
 
          left  = itf - 1
@@ -217,7 +194,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
          # kfaces_flux[idx_2d_rho_u,     right, 0, :] = mdothalf * numpy.where(selector, u_L, u_R)
          # kfaces_flux[idx_2d_rho_w,     right, 0, :] = mdothalf * numpy.where(selector, w_L, w_R) + Phalf
          # kfaces_flux[idx_2d_rho_theta, right, 0, :] = mdothalf * numpy.where(selector, e_L, e_R) + (Phalf*ahalf*Mhalf)
- 
+
 
          # Left state
          a_L = numpy.sqrt(heat_capacity_ratio * kfaces_pres[left, 1, :] / kfaces_var[idx_2d_rho, left, 1, :])
@@ -238,6 +215,10 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
                                                       (1. - M_R) * kfaces_pres[right,0,:])
 
          kfaces_flux[:,left,1,:] = kfaces_flux[:,right,0,:]
+      
+      if geom.zperiodic:
+         kfaces_flux[:, 0, 0, :] = kfaces_flux[:, -1, 1, :]
+      
 
       start = 0 if geom.xperiodic else 1
       for itf in range(start, nb_interfaces_x - 1):
@@ -318,6 +299,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
  
 
          # Left state
+         # pdb.set_trace()
          a_L = numpy.sqrt(heat_capacity_ratio * ifaces_pres[left, :, 1] / ifaces_var[idx_2d_rho, left, :, 1])
          M_L = ifaces_var[idx_2d_rho_u, left, :, 1] / (ifaces_var[idx_2d_rho, left, :, 1] * a_L)
 
@@ -357,18 +339,18 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
       # --- Assemble the right-hand sides
       rhs = - ( df1_dx1 + df3_dx3 )
 
-      rhs[idx_2d_rho_w,:,:] -= Qv[idx_2d_rho,:,:] * gravity
+      rhs[idx_2d_rho_w,:,:] -= Qv[idx_2d_rho,:,:] * gy
 
       return rhs
 
    rhs   = compute_rhs(Q_total, geom, idx_2d_rho, idx_2d_rho_u, idx_2d_rho_w, idx_2d_rho_theta,  \
                         p0, Rd, cpd, cvd, heat_capacity_ratio, gravity)
 
-   t_rhs = compute_rhs(Q_tilda, geom, idx_2d_rho, idx_2d_rho_u, idx_2d_rho_w, idx_2d_rho_theta,  \
-                        p0, Rd, cpd, cvd, heat_capacity_ratio, gravity)
+   # t_rhs = compute_rhs(Q_tilda, geom, idx_2d_rho, idx_2d_rho_u, idx_2d_rho_w, idx_2d_rho_theta,  \
+   #                      p0, Rd, cpd, cvd, heat_capacity_ratio, gravity)
 
 
-   # return rhs
-   return rhs - t_rhs
+   return rhs
+   # return rhs - t_rhs
 
       

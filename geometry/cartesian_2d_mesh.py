@@ -36,7 +36,7 @@ class Cartesian2D(Geometry):
          Δx3 = (domain_z[1] - relief_layer_height) / (nb_elements_z - nb_elements_relief_layer)
          itf_x3 = numpy.linspace(start=relief_layer_height, stop=domain_z[1], num=(nb_elements_z - nb_elements_relief_layer) + 1)
          itf_relief_layer = numpy.linspace(start=domain_z[0], stop=relief_layer_height, num=nb_elements_relief_layer + 1)
-
+ 
          z1 = numpy.zeros(nb_elements_relief_layer * len(self.solutionPoints))
          z2 = numpy.zeros((nb_elements_z-nb_elements_relief_layer) * len(self.solutionPoints))
 
@@ -70,6 +70,7 @@ class Cartesian2D(Geometry):
       self.relief_layer_delta = Δrelief_layer
       self.nb_elements_relief_layer = nb_elements_relief_layer
       self.xperiodic = True
+      self.zperiodic = True
 
 
    def make_mountain(self, mountain_type='sine'):
