@@ -50,8 +50,8 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       pressure_base             = p0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
       E_base                    = c*(pressure_base / rho_base) + g*geom.X3
       Q_tilda                   = numpy.zeros_like(Q)
-      Q_tilda[RHO]              = rho_base
-      Q_tilda[RHO_THETA]        = rho_base * E_base
+      # Q_tilda[RHO]              = rho_base
+      # Q_tilda[RHO_THETA]        = rho_base * E_base
 
       # Calculate the total Q vector
       Q_total                   = Q + Q_tilda
@@ -63,16 +63,20 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       rho                       = Q_total[RHO]
       pressure                  = (gamma-1)*(Q_total[RHO_THETA] - 0.5*rho*(u**2+w**2) - rho*g*geom.X3)
       
+      # if step_id > 1330:
+      # tuple = [rho, u, w, e, pressure]
+      # numpy.save(filename, tuple)
+
       c = numpy.sqrt(gamma*pressure / rho)
       M = (numpy.sqrt(u**2+w**2) / c).max()
       print("{:.18f}".format(M))
-      array = numpy.array([f"{M:.16e}"])   
-      # Open the file in append mode and write the new values
-      with open("april21_b_400.txt", "a") as file:
-         # Convert array to string and append to the file
-         file.write(" ".join(map(str, array)) + "\n")
-      if step_id > 0:
-         image_field(geom, w, filename, numpy.min(w), numpy.max(w), 20)
+      # array = numpy.array([f"{M:.16e}"])   
+      # # Open the file in append mode and write the new values
+      # with open("June26.txt", "a") as file:
+      #    # Convert array to string and append to the file
+      #    file.write(" ".join(map(str, array)) + "\n")
+      # if step_id > 0:
+      #    image_field(geom, w, filename, numpy.min(w), numpy.max(w), 20)
 
 
    elif param.case_number == 3:

@@ -21,15 +21,63 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
    pressure_base             = p0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
    E_base                    = c*(pressure_base / rho_base) + g*geom.X3
    Q_tilda                   = numpy.zeros_like(Q)
-   Q_tilda[idx_2d_rho]       = rho_base
-   Q_tilda[idx_2d_rho_theta] = rho_base * E_base
+   # Q_tilda[idx_2d_rho]       = rho_base
+   # Q_tilda[idx_2d_rho_theta] = rho_base * E_base
   
 
    Q_total = Q + Q_tilda
 
+   def apply_sponge_layer(Q, rhs, geom, sponge_zscale, sponge_tscale, rho_base, E_base):
+      """
+      Adds sponge damping to both the top and bottom boundaries for vertical velocity and energy.
+      rhs            : ndarray of shape (neqns, nz, nx), the current RHS array.
+      geom           : geometry object containing coordinates (geom.X3).
+      sponge_zscale  : vertical extent of sponge layer from top/bottom (e.g., 0.2 for 20% domain).
+      sponge_tscale  : damping timescale (e.g., 10.0 to 50.0 seconds for hydrostatic tests).
+      """
+      rho = Q[idx_2d_rho, :, :]
+      u   = Q[idx_2d_rho_u, :, :] / rho
+      w   = Q[idx_2d_rho_w, :, :] / rho
+      E = Q[idx_2d_rho_theta, :, :] / rho
 
+      if not hasattr(geom, "X3"):
+         raise ValueError("geom must have X3 coordinate array for sponge damping.")
+
+      X3 = geom.X3
+      zmin = numpy.min(X3)
+      zmax = numpy.max(X3)
+
+      beta = numpy.zeros_like(X3)
+
+      # Top sponge layer (X3 >= zmax - sponge_zscale)
+      mask_top = X3 >= (zmax - sponge_zscale)
+      beta_top = numpy.zeros_like(X3)
+      beta_top[mask_top] = (1.0 / sponge_tscale) * numpy.sin(
+         0.5 * numpy.pi * (X3[mask_top] - (zmax - sponge_zscale)) / sponge_zscale
+      )**2
+
+      # Bottom sponge layer (X3 <= zmin + sponge_zscale)
+      mask_bot = X3 <= (zmin + sponge_zscale)
+      beta_bot = numpy.zeros_like(X3)
+      beta_bot[mask_bot] = (1.0 / sponge_tscale) * numpy.sin(
+         0.5 * numpy.pi * ((zmin + sponge_zscale) - X3[mask_bot]) / sponge_zscale
+      )**2
+
+      # Total damping coefficient
+      beta = beta_top + beta_bot
+
+      # Damping in conservative form using primitive deviations
+      w_ref = 0
+      rhs[idx_2d_rho, :, :]       -= beta * (rho - rho_base)
+      rhs[idx_2d_rho_u, :, :]     -= beta * (rho*u)
+      rhs[idx_2d_rho_w, :, :]     -= beta * (rho * w - rho_base * w_ref)
+      rhs[idx_2d_rho_theta, :, :] -= beta * (rho * E - rho_base * E_base)
+
+
+      return rhs
+   
    def compute_rhs(Qv, geom, idx_2d_rho, idx_2d_rho_u, idx_2d_rho_w, idx_2d_rho_theta,  \
-                     p0, Rd, cpd, cvd, heat_capacity_ratio, gravity):
+                     p0, Rd, cpd, cvd, heat_capacity_ratio, gravity, rho_base, E_base):
 
       datatype = Qv.dtype
       nb_equations = Qv.shape[0] # Number of constituent Euler equations.  Probably 6.
@@ -51,7 +99,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
       ifaces_var, t_ifaces_var   = [numpy.empty((nb_equations, nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype) for _ in range(2)]
       ifaces_pres                = numpy.empty((nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
 
-      # --- Unpack physical variables
+      # --- Unumpyack physical variables
       rho      = Qv[idx_2d_rho,:,:]
       uu       = Qv[idx_2d_rho_u,:,:] / rho
       ww       = Qv[idx_2d_rho_w,:,:] / rho
@@ -213,7 +261,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
          # selector = mdothalf > 0
          # kfaces_flux[idx_2d_rho, right, 0, :] = mdothalf    # Mass flux (no condition needed, both branches use mdothalf)
 
-         # # Apply conditional values using np.where
+         # # Apply conditional values using numpy.where
          # kfaces_flux[idx_2d_rho_u,     right, 0, :] = mdothalf * numpy.where(selector, u_L, u_R)
          # kfaces_flux[idx_2d_rho_w,     right, 0, :] = mdothalf * numpy.where(selector, w_L, w_R) + Phalf
          # kfaces_flux[idx_2d_rho_theta, right, 0, :] = mdothalf * numpy.where(selector, e_L, e_R) + (Phalf*ahalf*Mhalf)
@@ -311,7 +359,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
          # selector = mdothalf > 0
          # ifaces_flux[idx_2d_rho, right, :, 0] = mdothalf    # Mass flux (no condition needed, both branches use mdothalf)
 
-         # # Apply conditional values using np.where
+         # # Apply conditional values using numpy.where
          # ifaces_flux[idx_2d_rho_u,     right, :, 0] = mdothalf * numpy.where(selector, u_L, u_R) + Phalf
          # ifaces_flux[idx_2d_rho_w,     right, :, 0] = mdothalf * numpy.where(selector, w_L, w_R) 
          # ifaces_flux[idx_2d_rho_theta, right, :, 0] = mdothalf * numpy.where(selector, e_L, e_R) + (Phalf*ahalf*Mhalf)
@@ -359,16 +407,19 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
       rhs[idx_2d_rho_w,:,:] -= Qv[idx_2d_rho,:,:] * gravity
 
+      rhs = apply_sponge_layer(Q_total, rhs, geom, sponge_zscale=0.4, sponge_tscale=5, rho_base=rho_base, E_base=E_base)
+
+
       return rhs
 
    rhs   = compute_rhs(Q_total, geom, idx_2d_rho, idx_2d_rho_u, idx_2d_rho_w, idx_2d_rho_theta,  \
-                        p0, Rd, cpd, cvd, heat_capacity_ratio, gravity)
+                        p0, Rd, cpd, cvd, heat_capacity_ratio, gravity, rho_base, E_base)
 
-   t_rhs = compute_rhs(Q_tilda, geom, idx_2d_rho, idx_2d_rho_u, idx_2d_rho_w, idx_2d_rho_theta,  \
-                        p0, Rd, cpd, cvd, heat_capacity_ratio, gravity)
+   # t_rhs = compute_rhs(Q_tilda, geom, idx_2d_rho, idx_2d_rho_u, idx_2d_rho_w, idx_2d_rho_theta,  \
+   #                      p0, Rd, cpd, cvd, heat_capacity_ratio, gravity)
 
 
-   # return rhs
-   return rhs - t_rhs
+   return rhs
+   # return rhs - t_rhs
 
       
