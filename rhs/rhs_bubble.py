@@ -94,49 +94,75 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
       # --- Bondary treatement
 
-      # zeros flux BCs everywhere ...
-      kfaces_flux[:,0,0,:]  = 0.0
-      kfaces_flux[:,-1,1,:] = 0.0
+      # # zeros flux BCs everywhere ...
+      # kfaces_flux[:,0,0,:]  = 0.0
+      # kfaces_flux[:,-1,1,:] = 0.0
 
-      # # Apply Dirichlet boundaries in Z (top and bottom)
-      # Q_bottom = numpy.zeros((4, nbsolpts * nb_elements_x), dtype=numpy.float64)
-      # Q_bottom[0] = 1
-      # Q_bottom[3] = 1 / ((5/3) - 1)
-      # Q_top = numpy.zeros((4, nbsolpts * nb_elements_x), dtype=numpy.float64)
-      # Q_top[0] = numpy.exp(-2)
-      # Q_top[3] = (1 / ((5/3) - 1) + 2) * numpy.exp(-2)
-      # rho_b = Q_bottom[idx_2d_rho]
-      # rho_t = Q_top[idx_2d_rho]
-      # u_b = Q_bottom[idx_2d_rho_u] / rho_b
-      # w_b = Q_bottom[idx_2d_rho_w] / rho_b
-      # e_b = Q_bottom[idx_2d_rho_theta] / rho_b
-      # u_t = Q_top[idx_2d_rho_u] / rho_t
-      # w_t = Q_top[idx_2d_rho_w] / rho_t
-      # e_t = Q_top[idx_2d_rho_theta] / rho_t
-      # h_b = 0
-      # h_t = 2
-      # p_b = (heat_capacity_ratio - 1) * (Q_bottom[idx_2d_rho_theta] - rho_b * gravity * h_b)
-      # p_t = (heat_capacity_ratio - 1) * (Q_top[idx_2d_rho_theta] - rho_t * gravity * h_t)
+      # # except for momentum eqs where pressure is extrapolated to BCs.
+      # kfaces_flux[idx_2d_rho_w, 0, 0, :] = kfaces_pres[ 0, 0, :]
+      # kfaces_flux[idx_2d_rho_w,-1, 1, :] = kfaces_pres[-1, 1, :]
 
-      # kfaces_flux[idx_2d_rho, 0, 0, :]       = Q_bottom[idx_2d_rho_u]
-      # kfaces_flux[idx_2d_rho_u, 0, 0, :]     = Q_bottom[idx_2d_rho_u] * w_b
-      # kfaces_flux[idx_2d_rho_w, 0, 0, :]     = Q_bottom[idx_2d_rho_u] * w_b + p_b
-      # kfaces_flux[idx_2d_rho_theta, 0, 0, :] = (Q_bottom[idx_2d_rho_theta] + p_b) * w_b
+      UB_right_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the upper boundary
 
-      # kfaces_flux[idx_2d_rho, -1, 1, :]       = Q_top[idx_2d_rho_u]
-      # kfaces_flux[idx_2d_rho_u, -1, 1, :]     = Q_top[idx_2d_rho_u] * w_t 
-      # kfaces_flux[idx_2d_rho_w, -1, 1, :]     = Q_top[idx_2d_rho_u] * w_t + p_t
-      # kfaces_flux[idx_2d_rho_theta, -1, 1, :] = (Q_top[idx_2d_rho_theta, :] + p_t) * w_t
+      UB_right_var[idx_2d_rho]          = numpy.exp(-2)
+      UB_right_var[idx_2d_rho_u]        = kfaces_var[idx_2d_rho_u,-1,1,:]
+      UB_right_var[idx_2d_rho_w]        = -kfaces_var[idx_2d_rho_w,-1,1,:]
+      UB_right_var[idx_2d_rho_theta]    = numpy.exp(-2) * (1/(heat_capacity_ratio-1) + gravity*2) # Ratio of P/rho is 1
 
+      # Common flux at the top boundary
+      # Left state
+      a_L_t = numpy.sqrt(heat_capacity_ratio * kfaces_pres[-1, 1, :] / kfaces_var[idx_2d_rho, -1, 1, :])
+      M_L_t = kfaces_var[idx_2d_rho_w, -1, 1, :] / (kfaces_var[idx_2d_rho, -1, 1, :] * a_L_t)
+      # Right state
+      a_R_t = numpy.sqrt(heat_capacity_ratio * 1 ) * numpy.ones_like(a_L_t) # Ratio of P/rho is 1
+      M_R_t = numpy.zeros_like(a_R_t)  # Since normal velocity is zero at the top boundary so this quantity will always be zero
+
+      M = 0.25 * (( M_L_t + 1.)**2 - (M_R_t - 1.)**2)
+
+      kfaces_flux[0:3,-1,1,:] = (kfaces_var[0:3,-1,1,:] * numpy.maximum(0., M) * a_L_t) + \
+                                (UB_right_var[0:3,:] * numpy.minimum(0., M) * a_R_t)
+      kfaces_flux[3,-1,1,:]   = ((kfaces_var[3,-1,1,:] + kfaces_pres[-1, 1, :]) * numpy.maximum(0., M) * a_L_t) + \
+                                ((UB_right_var[3,:] + numpy.exp(-2)) * numpy.minimum(0., M) * a_R_t)
+
+      kfaces_flux[idx_2d_rho_w,-1,1,:] += 0.5 * ((1. + M_L_t) * kfaces_pres[-1, 1, :] + \
+                                                   (1. - M_R_t) * numpy.exp(-2))
+      
+  
+      LB_left_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the lower boundary
+
+      LB_left_var[idx_2d_rho]          = 1
+      LB_left_var[idx_2d_rho_u]        = kfaces_var[idx_2d_rho_u,0,0,:]
+      LB_left_var[idx_2d_rho_w]        = -kfaces_var[idx_2d_rho_w,0,0,:]
+      LB_left_var[idx_2d_rho_theta]    = 1 * (1/(heat_capacity_ratio-1)) # Ratio of P/rho is 1 and h=0
+
+      # Common flux at the bottom boundary
+      # Right state
+      a_R_b = numpy.sqrt(heat_capacity_ratio * kfaces_pres[0, 0, :] / kfaces_var[idx_2d_rho, 0, 0, :])
+      M_R_b = kfaces_var[idx_2d_rho_w, 0, 0, :] / (kfaces_var[idx_2d_rho, 0, 0, :] * a_R_b)
+      
+      # Left state
+      a_L_b = numpy.sqrt(heat_capacity_ratio * 1) * numpy.ones_like(a_R_b)
+      M_L_b = numpy.zeros_like(a_L_b)  # Since normal velocity is zero at the bottom boundary so this quantity will always be zero
+
+
+
+      M = 0.25 * (( M_L_b + 1.)**2 - (M_R_b - 1.)**2)
+
+      kfaces_flux[0:3,0,0,:] = (LB_left_var[0:3,:] * numpy.minimum(0., M) * a_L_b) + \
+                                (kfaces_var[0:3,0,0,:] * numpy.maximum(0., M) * a_R_b)
+                                
+      kfaces_flux[3,0,0,:]   = ((LB_left_var[3,:] + 1) * numpy.minimum(0., M) * a_L_b) + \
+                               ((kfaces_var[3,0,0,:] + kfaces_pres[0, 0, :]) * numpy.maximum(0., M) * a_R_b)
+                              
+      kfaces_flux[idx_2d_rho_w,0,0,:] += 0.5 * ((1. + M_L_b) * 1 + \
+                                                   (1. - M_R_b) * kfaces_pres[0, 0, :])
+
+      
 
       # Skip periodic faces
       if not geom.xperiodic:
          ifaces_flux[:, 0,:,0] = 0.0
          ifaces_flux[:,-1,:,1] = 0.0
-
-      # except for momentum eqs where pressure is extrapolated to BCs.
-      kfaces_flux[idx_2d_rho_w, 0, 0, :] = kfaces_pres[ 0, 0, :]
-      kfaces_flux[idx_2d_rho_w,-1, 1, :] = kfaces_pres[-1, 1, :]
 
       # ifaces_flux[idx_2d_rho_u, 0,:,0] = ifaces_pres[0,:,0]  # TODO : pour les cas théoriques seulement ...
       # ifaces_flux[idx_2d_rho_u,-1,:,1] = ifaces_pres[-1,:,1]
