@@ -65,7 +65,7 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       
       c = numpy.sqrt(gamma*pressure / rho)
       M = (numpy.sqrt(u**2+w**2) / c).max()
-      print("{:.18f}".format(M))
+      print("{:.5e}".format(M))
       array = numpy.array([f"{M:.16e}"])   
       # Open the file in append mode and write the new values
       with open("april21_b_400.txt", "a") as file:

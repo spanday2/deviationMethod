@@ -4,6 +4,7 @@ import pdb
 from common.program_options     import Configuration
 from common.definitions import idx_2d_rho, idx_2d_rho_u, idx_2d_rho_w, idx_2d_rho_theta,  \
                                p0, Rd, cpd, cvd, heat_capacity_ratio, gravity
+from .flux import roe_flux_2d_delta0
 
 def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
@@ -27,7 +28,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
    Q_total = Q + Q_tilda
 
-
+ 
    def compute_rhs(Qv, geom, idx_2d_rho, idx_2d_rho_u, idx_2d_rho_w, idx_2d_rho_theta,  \
                      p0, Rd, cpd, cvd, heat_capacity_ratio, gravity):
 
@@ -37,19 +38,24 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
       nb_interfaces_x = nb_elements_x + 1
       nb_interfaces_z = nb_elements_z + 1
 
-      flux_x1, t_flux_x1 = [numpy.empty_like(Qv, dtype=datatype) for _ in range(2)]
-      flux_x3, t_flux_x3 = [numpy.empty_like(Qv, dtype=datatype) for _ in range(2)]
+      flux_x1 = numpy.empty_like(Qv, dtype=datatype)
+      flux_x3 = numpy.empty_like(Qv, dtype=datatype)
 
-      df1_dx1, t_df1_dx1 = [numpy.empty_like(Qv, dtype=datatype) for _ in range(2)]
-      df3_dx3, t_df3_dx3 = [numpy.empty_like(Qv, dtype=datatype) for _ in range(2)]
+      df1_dx1 = numpy.empty_like(Qv, dtype=datatype)
+      df3_dx3 = numpy.empty_like(Qv, dtype=datatype)
 
-      kfaces_flux, t_kfaces_flux = [numpy.empty((nb_equations, nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype) for _ in range(2)]
-      kfaces_var, t_kfaces_var   = [numpy.empty((nb_equations, nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype) for _ in range(2)]
-      kfaces_pres                = numpy.empty((nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype)
+      kfaces_flux     = numpy.zeros((nb_equations, nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype)
+      kfaces_var      = numpy.zeros((nb_equations, nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype)
+      kfaces_pres     = numpy.zeros((nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype)
+      kfaces_enthalpy = numpy.zeros((nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype)
+      kfaces_height   = numpy.zeros((nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype)
 
-      ifaces_flux, t_ifaces_flux = [numpy.empty((nb_equations, nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype) for _ in range(2)]
-      ifaces_var, t_ifaces_var   = [numpy.empty((nb_equations, nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype) for _ in range(2)]
-      ifaces_pres                = numpy.empty((nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
+      ifaces_flux     = numpy.zeros((nb_equations, nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
+      ifaces_var      = numpy.zeros((nb_equations, nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
+      ifaces_pres     = numpy.zeros((nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
+      ifaces_enthalpy = numpy.zeros((nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
+      ifaces_height   = numpy.zeros((nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
+
 
       # --- Unpack physical variables
       rho      = Qv[idx_2d_rho,:,:]
@@ -58,39 +64,48 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
       ee       = Qv[idx_2d_rho_theta,:,:] / rho
       height   = geom.X3
 
-      pressure = (heat_capacity_ratio-1) * (Qv[idx_2d_rho_theta, :, :] - 0.5*rho*(uu**2 + ww**2) - rho*gravity*height)
-      # pressure = (heat_capacity_ratio-1) * (Qv[idx_2d_rho_theta, :, :] - rho*gravity*height)
-      
+      pressure = (heat_capacity_ratio-1) * (Qv[idx_2d_rho_theta, :, :] - 0.5*rho*(uu**2 + ww**2) - rho*gravity*geom.X3)
+      enthalpy = (heat_capacity_ratio/(heat_capacity_ratio-1))*(pressure/rho) + 0.5*(uu**2 + ww**2) + gravity*geom.X3
 
       # --- Compute the fluxes
       flux_x1[idx_2d_rho,:,:]       = Qv[idx_2d_rho_u,:,:]
       flux_x1[idx_2d_rho_u,:,:]     = Qv[idx_2d_rho_u,:,:] * uu + pressure
       flux_x1[idx_2d_rho_w,:,:]     = Qv[idx_2d_rho_u,:,:] * ww
-      flux_x1[idx_2d_rho_theta,:,:] = (Qv[idx_2d_rho_theta,:,:] + pressure) * uu
-
+      flux_x1[idx_2d_rho_theta,:,:] = (Qv[idx_2d_rho_theta,:,:] + pressure) * uu 
+      
 
       flux_x3[idx_2d_rho,:,:]       = Qv[idx_2d_rho_w,:,:]
       flux_x3[idx_2d_rho_u,:,:]     = Qv[idx_2d_rho_w,:,:] * uu
       flux_x3[idx_2d_rho_w,:,:]     = Qv[idx_2d_rho_w,:,:] * ww + pressure
       flux_x3[idx_2d_rho_theta,:,:] = (Qv[idx_2d_rho_theta,:,:] + pressure) * ww
 
+
       # --- Interpolate to the element interface
       standard_slice = numpy.arange(nbsolpts)
       for elem in range(nb_elements_z):
          epais = elem * nbsolpts + standard_slice
 
-         kfaces_var[:,elem,0,:] = mtrx.extrap_down @ Qv[:,epais,:]
-         kfaces_var[:,elem,1,:] = mtrx.extrap_up @ Qv[:,epais,:]
-         kfaces_pres[elem,0,:]  = mtrx.extrap_down @ pressure[epais,:]
-         kfaces_pres[elem,1,:]  = mtrx.extrap_up @ pressure[epais,:]
+         kfaces_var[:,elem,0,:]    = (mtrx.extrap_down @ Qv[:,epais,:])
+         kfaces_var[:,elem,1,:]    = (mtrx.extrap_up   @ Qv[:,epais,:])
+         kfaces_pres[elem,0,:]     = (mtrx.extrap_down @ pressure[epais,:])
+         kfaces_pres[elem,1,:]     = (mtrx.extrap_up   @ pressure[epais,:])
+         kfaces_height[elem,0,:]   = (mtrx.extrap_down @ height[epais,:])
+         kfaces_height[elem,1,:]   = (mtrx.extrap_up   @ height[epais,:])
+         kfaces_enthalpy[elem,0,:] = (mtrx.extrap_down @ enthalpy[epais,:])
+         kfaces_enthalpy[elem,1,:] = (mtrx.extrap_up   @ enthalpy[epais,:])
+
 
       for elem in range(nb_elements_x):
          epais = elem * nbsolpts + standard_slice
 
-         ifaces_var[:,elem,:,0] = Qv[:,:,epais] @ mtrx.extrap_west
-         ifaces_var[:,elem,:,1] = Qv[:,:,epais] @ mtrx.extrap_east
-         ifaces_pres[elem,:,0]  = pressure[:,epais] @ mtrx.extrap_west
-         ifaces_pres[elem,:,1]  = pressure[:,epais] @ mtrx.extrap_east
+         ifaces_var[:,elem,:,0]    = (Qv[:,:,epais]   @ mtrx.extrap_west)
+         ifaces_var[:,elem,:,1]    = (Qv[:,:,epais]   @ mtrx.extrap_east)
+         ifaces_pres[elem,:,0]     = (pressure[:,epais] @ mtrx.extrap_west)
+         ifaces_pres[elem,:,1]     = (pressure[:,epais] @ mtrx.extrap_east)
+         ifaces_height[elem,:,0]   = (height[:,epais]   @ mtrx.extrap_west)
+         ifaces_height[elem,:,1]   = (height[:,epais]   @ mtrx.extrap_east)
+         ifaces_enthalpy[elem,:,0] = (enthalpy[:,epais] @ mtrx.extrap_west)
+         ifaces_enthalpy[elem,:,1] = (enthalpy[:,epais] @ mtrx.extrap_east)
 
       # --- Bondary treatement
 
@@ -104,61 +119,49 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
       UB_right_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the upper boundary
 
-      UB_right_var[idx_2d_rho]          = numpy.exp(-2)
-      UB_right_var[idx_2d_rho_u]        = kfaces_var[idx_2d_rho_u,-1,1,:]
-      UB_right_var[idx_2d_rho_w]        = -kfaces_var[idx_2d_rho_w,-1,1,:]
-      UB_right_var[idx_2d_rho_theta]    = numpy.exp(-2) * (1/(heat_capacity_ratio-1) + gravity*2) # Ratio of P/rho is 1
-
+      UB_right_var[idx_2d_rho]          = numpy.exp(-2) # From Background profile
+      UB_right_var[idx_2d_rho_u]        = 0 #kfaces_var[idx_2d_rho_u,-1,1,:]
+      UB_right_var[idx_2d_rho_w]        = 0 #-kfaces_var[idx_2d_rho_w,-1,1,:]
+      UB_right_var[idx_2d_rho_theta]    = numpy.exp(-2) * (1/(heat_capacity_ratio-1) + gravity*2) # From Background profile
+      UB_right_enthalpy = (heat_capacity_ratio/(heat_capacity_ratio-1)) + gravity*2 # From Background profile
+ 
+      kfaces_u   = kfaces_var[idx_2d_rho_u,-1,1,:] / kfaces_var[idx_2d_rho,-1,1,:]
+      kfaces_w   = kfaces_var[idx_2d_rho_w,-1,1,:] / kfaces_var[idx_2d_rho,-1,1,:]
+      
       # Common flux at the top boundary
-      # Left state
-      a_L_t = numpy.sqrt(heat_capacity_ratio * kfaces_pres[-1, 1, :] / kfaces_var[idx_2d_rho, -1, 1, :])
-      M_L_t = kfaces_var[idx_2d_rho_w, -1, 1, :] / (kfaces_var[idx_2d_rho, -1, 1, :] * a_L_t)
-      # Right state
-      a_R_t = numpy.sqrt(heat_capacity_ratio * 1 ) * numpy.ones_like(a_L_t) # Ratio of P/rho is 1
-      M_R_t = numpy.zeros_like(a_R_t)  # Since normal velocity is zero at the top boundary so this quantity will always be zero
-
-      M = 0.25 * (( M_L_t + 1.)**2 - (M_R_t - 1.)**2)
-
-      kfaces_flux[0:3,-1,1,:] = (kfaces_var[0:3,-1,1,:] * numpy.maximum(0., M) * a_L_t) + \
-                                (UB_right_var[0:3,:] * numpy.minimum(0., M) * a_R_t)
-      kfaces_flux[3,-1,1,:]   = ((kfaces_var[3,-1,1,:] + kfaces_pres[-1, 1, :]) * numpy.maximum(0., M) * a_L_t) + \
-                                ((UB_right_var[3,:] + numpy.exp(-2)) * numpy.minimum(0., M) * a_R_t)
-
-      kfaces_flux[idx_2d_rho_w,-1,1,:] += 0.5 * ((1. + M_L_t) * kfaces_pres[-1, 1, :] + \
-                                                   (1. - M_R_t) * numpy.exp(-2))
+      kfaces_flux[:,-1,1,:] = roe_flux_2d_delta0(
+            kfaces_var[:,-1,1,:], UB_right_var,
+            u_L=kfaces_u, u_R=UB_right_var[idx_2d_rho_u]/UB_right_var[idx_2d_rho],
+            w_L=kfaces_w, w_R=UB_right_var[idx_2d_rho_w]/UB_right_var[idx_2d_rho],
+            p_L=kfaces_pres[-1,  1, :], p_R=numpy.exp(-2),
+            H_L=kfaces_enthalpy[-1,  1, :], H_R=UB_right_enthalpy,
+            h_L=kfaces_height[-1,1,:],   h_R=2,
+            gamma=heat_capacity_ratio, gravity=gravity, normal="z")
       
   
       LB_left_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the lower boundary
 
-      LB_left_var[idx_2d_rho]          = 1
-      LB_left_var[idx_2d_rho_u]        = kfaces_var[idx_2d_rho_u,0,0,:]
-      LB_left_var[idx_2d_rho_w]        = -kfaces_var[idx_2d_rho_w,0,0,:]
-      LB_left_var[idx_2d_rho_theta]    = 1 * (1/(heat_capacity_ratio-1)) # Ratio of P/rho is 1 and h=0
-
+      LB_left_var[idx_2d_rho]          = 1 # From Background profile
+      LB_left_var[idx_2d_rho_u]        = 0 #kfaces_var[idx_2d_rho_u,0,0,:]
+      LB_left_var[idx_2d_rho_w]        = 0 #-kfaces_var[idx_2d_rho_w,0,0,:]
+      LB_left_var[idx_2d_rho_theta]    = 1 * (1/(heat_capacity_ratio-1)) # From Background profile
+      LB_left_enthalpy = (heat_capacity_ratio/(heat_capacity_ratio-1))   # From Background profile
+      
+      kfaces_u   = kfaces_var[idx_2d_rho_u,0,0,:] / kfaces_var[idx_2d_rho,0,0,:]
+      kfaces_w   = kfaces_var[idx_2d_rho_w,0,0,:] / kfaces_var[idx_2d_rho,0,0,:]
+      
       # Common flux at the bottom boundary
-      # Right state
-      a_R_b = numpy.sqrt(heat_capacity_ratio * kfaces_pres[0, 0, :] / kfaces_var[idx_2d_rho, 0, 0, :])
-      M_R_b = kfaces_var[idx_2d_rho_w, 0, 0, :] / (kfaces_var[idx_2d_rho, 0, 0, :] * a_R_b)
-      
-      # Left state
-      a_L_b = numpy.sqrt(heat_capacity_ratio * 1) * numpy.ones_like(a_R_b)
-      M_L_b = numpy.zeros_like(a_L_b)  # Since normal velocity is zero at the bottom boundary so this quantity will always be zero
-
-
-
-      M = 0.25 * (( M_L_b + 1.)**2 - (M_R_b - 1.)**2)
-
-      kfaces_flux[0:3,0,0,:] = (LB_left_var[0:3,:] * numpy.minimum(0., M) * a_L_b) + \
-                                (kfaces_var[0:3,0,0,:] * numpy.maximum(0., M) * a_R_b)
-                                
-      kfaces_flux[3,0,0,:]   = ((LB_left_var[3,:] + 1) * numpy.minimum(0., M) * a_L_b) + \
-                               ((kfaces_var[3,0,0,:] + kfaces_pres[0, 0, :]) * numpy.maximum(0., M) * a_R_b)
-                              
-      kfaces_flux[idx_2d_rho_w,0,0,:] += 0.5 * ((1. + M_L_b) * 1 + \
-                                                   (1. - M_R_b) * kfaces_pres[0, 0, :])
+      kfaces_flux[:,0,0,:] = roe_flux_2d_delta0(
+            LB_left_var, kfaces_var[:,0,0,:],
+            u_L=LB_left_var[idx_2d_rho_u]/LB_left_var[idx_2d_rho], u_R=kfaces_u,
+            w_L=LB_left_var[idx_2d_rho_w]/LB_left_var[idx_2d_rho], w_R=kfaces_w,
+            p_L=1, p_R=kfaces_pres[0, 0, :],
+            H_L=LB_left_enthalpy, H_R=kfaces_enthalpy[0, 0, :],
+            h_L=0,   h_R=kfaces_height[0,0,:],
+            gamma=heat_capacity_ratio, gravity=gravity, normal="z"
+         )
 
       
-
       # Skip periodic faces
       if not geom.xperiodic:
          ifaces_flux[:, 0,:,0] = 0.0
@@ -167,209 +170,80 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
       # ifaces_flux[idx_2d_rho_u, 0,:,0] = ifaces_pres[0,:,0]  # TODO : pour les cas théoriques seulement ...
       # ifaces_flux[idx_2d_rho_u,-1,:,1] = ifaces_pres[-1,:,1]
 
-      # --- Common AUSM+ up fluxes
-      for itf in range(1, nb_interfaces_z - 1):
+      # Compute ifaces u and w
+      ifaces_u   = ifaces_var[idx_2d_rho_u] / ifaces_var[idx_2d_rho]
+      ifaces_w   = ifaces_var[idx_2d_rho_w] / ifaces_var[idx_2d_rho] 
+      kfaces_u   = kfaces_var[idx_2d_rho_u] / kfaces_var[idx_2d_rho]
+      kfaces_w   = kfaces_var[idx_2d_rho_w] / kfaces_var[idx_2d_rho]
+
+      
+      # --- Common Roe fluxes
+      # start = 0 if geom.zperiodic else 1
+      start = 1
+      for itf in range(start, nb_interfaces_z - 1):
 
          left  = itf - 1
          right = itf
 
-         # # --- AUSM+up constants ---
-         # sigma     = 1.0
-         # K_p       = 0.25
-         # K_u       = 0.75
-         # beta      = 1.0 / 8.0 
-         # M_inf_u   = 1
-         # M_inf_p   = 1
+         
+         # Gather left/right slices (shape (neq, N))
+         UL = kfaces_var[:, left,  1, :]
+         UR = kfaces_var[:, right, 0, :]
 
-         # # --- Primitive variables ---
-         # rho_L = kfaces_var[idx_2d_rho, left, 1, :]
-         # rho_R = kfaces_var[idx_2d_rho, right, 0, :]
+         flux = roe_flux_2d_delta0(
+            UL, UR,
+            u_L=kfaces_u[left,  1, :], u_R=kfaces_u[right, 0, :],
+            w_L=kfaces_w[left,  1, :], w_R=kfaces_w[right, 0, :],
+            p_L=kfaces_pres[left,  1, :], p_R=kfaces_pres[right, 0, :],
+            H_L=kfaces_enthalpy[left,  1, :], H_R=kfaces_enthalpy[right, 0, :],
+            h_L=kfaces_height[left,  1, :],   h_R=kfaces_height[right, 0, :],
+            gamma=heat_capacity_ratio, gravity=gravity, normal="z"
+         )
 
-         # u_L   = kfaces_var[idx_2d_rho_u, left, 1, :] / rho_L
-         # u_R   = kfaces_var[idx_2d_rho_u, right, 0, :] / rho_R
-
-         # w_L   = kfaces_var[idx_2d_rho_w, left, 1, :] / rho_L
-         # w_R   = kfaces_var[idx_2d_rho_w, right, 0, :] / rho_R
-
-         # e_L   = kfaces_var[idx_2d_rho_theta, left, 1, :] / rho_L
-         # e_R   = kfaces_var[idx_2d_rho_theta, right, 0, :] / rho_R
-
-         # p_L   = kfaces_pres[left, 1, :]
-         # p_R   = kfaces_pres[right, 0, :]  
-
-         # # Interface speed of sound
-         # a_L   = numpy.sqrt(heat_capacity_ratio * p_L / rho_L)
-         # a_R   = numpy.sqrt(heat_capacity_ratio * p_R / rho_R)
-         # ahalf = 0.5*(a_L + a_R)  
-
-         # # --- Compute interface Mach numbers ---
-         # M_L     = w_L / ahalf
-         # M_R     = w_R / ahalf
-
-         # Mbar_sq = (w_L**2 + w_R**2) / (2.0 * ahalf**2)
-         # Mo_sq   = numpy.minimum(1.0, numpy.maximum(Mbar_sq, M_inf_p**2))
-         # Mo      = numpy.sqrt(Mo_sq)
-         # fa      = Mo*(2-Mo) 
-
-         # Mplus    = 0.25 * (M_L + 1)**2 * (1 + 16 * beta * 0.25 * (M_L - 1)**2)
-         # Mminus   = -0.25 * (M_R - 1)**2 * (1 + 16 * beta * 0.25 * (M_R + 1)**2)
-
-         # rhohalf  = 0.5 * (rho_L + rho_R)
-
-         # # --- Mach number at interface (Eq. 73)
-         # Mhalf = ( Mplus + Mminus - (K_p / fa) * numpy.maximum(1.0 - sigma * Mbar_sq, 0) * (p_R - p_L) / (rhohalf * ahalf**2))
-      
-         # # --- Compute mass flux (Eq. 74)
-         # mdothalf = ahalf * Mhalf * numpy.where(Mhalf > 0, rho_L, rho_R)
-
-         # # --- Compute pressure flux ---
-         # Mo_sq   = numpy.minimum(1.0, numpy.maximum(Mbar_sq, M_inf_u**2))
-         # Mo      = numpy.sqrt(Mo_sq)
-         # fa      = Mo*(2-Mo) 
-         # alpha = (3/16)*(-4 + 5*fa**2)
-
-         # Pplus  = 0.25 * (M_L + 1)**2 * ((2 - M_L) + 16 * alpha * M_L * 0.25 * (M_L - 1)**2)
-         # Pminus = -0.25 * (M_R - 1)**2 * ((-2 - M_R) + 16 * alpha * M_R * 0.25 * (M_R + 1)**2)
+         kfaces_flux[:, right, 0, :] = flux
+         kfaces_flux[:, left,  1, :] = flux  # mirror
 
 
-         # # --- Pressure flux (Eq. 75)
-         # Phalf = Pplus * p_L + Pminus * p_R - K_u * Pplus * Pminus * (rho_L + rho_R) * ahalf * fa * (w_R - w_L)
+      # if geom.zperiodic:
+      #    kfaces_flux[:, 0, 0, :] = kfaces_flux[:, -1, 1, :]
 
-         # # Boolean mask: True where mdothalf > 0
-         # selector = mdothalf > 0
-         # kfaces_flux[idx_2d_rho, right, 0, :] = mdothalf    # Mass flux (no condition needed, both branches use mdothalf)
 
-         # # Apply conditional values using np.where
-         # kfaces_flux[idx_2d_rho_u,     right, 0, :] = mdothalf * numpy.where(selector, u_L, u_R)
-         # kfaces_flux[idx_2d_rho_w,     right, 0, :] = mdothalf * numpy.where(selector, w_L, w_R) + Phalf
-         # kfaces_flux[idx_2d_rho_theta, right, 0, :] = mdothalf * numpy.where(selector, e_L, e_R) + (Phalf*ahalf*Mhalf)
- 
 
-         # Left state
-         a_L = numpy.sqrt(heat_capacity_ratio * kfaces_pres[left, 1, :] / kfaces_var[idx_2d_rho, left, 1, :])
-         M_L = kfaces_var[idx_2d_rho_w, left, 1, :] / (kfaces_var[idx_2d_rho, left, 1, :] * a_L)
-
-         # Right state
-         a_R = numpy.sqrt(heat_capacity_ratio * kfaces_pres[right, 0, :] / kfaces_var[idx_2d_rho, right, 0, :])
-         M_R = kfaces_var[idx_2d_rho_w, right, 0, :] / (kfaces_var[idx_2d_rho, right, 0, :] * a_R)
-
-         M = 0.25 * (( M_L + 1.)**2 - (M_R - 1.)**2)
-
-         kfaces_flux[0:3,right,0,:] = (kfaces_var[0:3,left,1,:] * numpy.maximum(0., M) * a_L) + \
-                                      (kfaces_var[0:3,right,0,:] * numpy.minimum(0., M) * a_R)
-         kfaces_flux[3,right,0,:]   = ((kfaces_var[3,left,1,:] + kfaces_pres[left,1,:]) * numpy.maximum(0., M) * a_L) + \
-                                      ((kfaces_var[3,right,0,:] + kfaces_pres[right,0,:]) * numpy.minimum(0., M) * a_R)
-
-         kfaces_flux[idx_2d_rho_w,right,0,:] += 0.5 * ((1. + M_L) * kfaces_pres[left,1,:] + \
-                                                      (1. - M_R) * kfaces_pres[right,0,:])
-
-         kfaces_flux[:,left,1,:] = kfaces_flux[:,right,0,:]
-
-      start = 0 if geom.xperiodic else 1
+      # ifaces flux
+      start      = 0 if geom.xperiodic else 1
       for itf in range(start, nb_interfaces_x - 1):
 
-         left  = itf - 1
-         right = itf
+         left    = itf - 1
+         right   = itf
 
-         # # --- AUSM+up constants ---
-         # sigma     = 1.0
-         # K_p       = 0.25
-         # K_u       = 0.75
-         # beta      = 1.0 / 8.0 
-         # M_inf_u   = 1 
-         # M_inf_p   = 1
+         # Slices (neq, N)
+         UL = ifaces_var[:, left,  :, 1]
+         UR = ifaces_var[:, right, :, 0]
 
-         # # --- Primitive variables ---
-         # rho_L = ifaces_var[idx_2d_rho, left, :, 1]
-         # rho_R = ifaces_var[idx_2d_rho, right, :, 0]
+         flux = roe_flux_2d_delta0(
+            UL, UR,
+            u_L=ifaces_u[left,  :, 1], u_R=ifaces_u[right, :, 0],
+            w_L=ifaces_w[left,  :, 1], w_R=ifaces_w[right, :, 0],
+            p_L=ifaces_pres[left,  :, 1], p_R=ifaces_pres[right, :, 0],
+            H_L=ifaces_enthalpy[left,  :, 1], H_R=ifaces_enthalpy[right, :, 0],
+            h_L=ifaces_height[left,  :, 1],   h_R=ifaces_height[right, :, 0],
+            gamma=heat_capacity_ratio, gravity=gravity, normal="x"
+         )
 
-         # u_L   = ifaces_var[idx_2d_rho_u, left, :, 1] / rho_L
-         # u_R   = ifaces_var[idx_2d_rho_u, right, :, 0] / rho_R
-
-         # w_L   = ifaces_var[idx_2d_rho_w, left, :, 1] / rho_L
-         # w_R   = ifaces_var[idx_2d_rho_w, right, :, 0] / rho_R
-
-         # e_L   = ifaces_var[idx_2d_rho_theta, left, :, 1] / rho_L
-         # e_R   = ifaces_var[idx_2d_rho_theta, right, :, 0] / rho_R
-
-         # p_L   = ifaces_pres[left, :, 1]
-         # p_R   = ifaces_pres[right, :, 0]  
-
-         # # Interface speed of sound
-         # a_L   = numpy.sqrt(heat_capacity_ratio * p_L / rho_L)
-         # a_R   = numpy.sqrt(heat_capacity_ratio * p_R / rho_R)
-         # ahalf = 0.5*(a_L + a_R)  
-
-         # # --- Compute interface Mach numbers ---
-         # M_L     = u_L / ahalf
-         # M_R     = u_R / ahalf
-
-         # Mbar_sq = (u_L**2 + u_R**2) / (2.0 * ahalf**2)
-         # Mo_sq   = numpy.minimum(1.0, numpy.maximum(Mbar_sq, M_inf_p**2))
-         # Mo      = numpy.sqrt(Mo_sq)
-         # fa      = Mo*(2-Mo) 
-
-         # Mplus    = 0.25 * (M_L + 1)**2 * (1 + 16 * beta * 0.25 * (M_L - 1)**2)
-         # Mminus   = -0.25 * (M_R - 1)**2 * (1 + 16 * beta * 0.25 * (M_R + 1)**2)
-
-         # rhohalf  = 0.5 * (rho_L + rho_R)
-
-         # # --- Mach number at interface (Eq. 73)
-         # Mhalf = ( Mplus + Mminus - (K_p / fa) * numpy.maximum(1.0 - sigma * Mbar_sq, 0) * (p_R - p_L) / (rhohalf * ahalf**2))
-      
-         # # --- Compute mass flux (Eq. 74)
-         # mdothalf = ahalf * Mhalf * numpy.where(Mhalf > 0, rho_L, rho_R)
-
-         # # --- Compute pressure flux ---
-         # Mo_sq   = numpy.minimum(1.0, numpy.maximum(Mbar_sq, M_inf_u**2))
-         # Mo      = numpy.sqrt(Mo_sq)
-         # fa      = Mo*(2-Mo) 
-         # alpha = (3/16)*(-4 + 5*fa**2)
-
-         # Pplus  = 0.25 * (M_L + 1)**2 * ((2 - M_L) + 16 * alpha * M_L * 0.25 * (M_L - 1)**2)
-         # Pminus = -0.25 * (M_R - 1)**2 * ((-2 - M_R) + 16 * alpha * M_R * 0.25 * (M_R + 1)**2)
-
-
-         # # --- Pressure flux (Eq. 75)
-         # Phalf = Pplus * p_L + Pminus * p_R - K_u * Pplus * Pminus * (rho_L + rho_R) * ahalf * fa * (u_R - u_L)
-
-         # # Boolean mask: True where mdothalf > 0
-         # selector = mdothalf > 0
-         # ifaces_flux[idx_2d_rho, right, :, 0] = mdothalf    # Mass flux (no condition needed, both branches use mdothalf)
-
-         # # Apply conditional values using np.where
-         # ifaces_flux[idx_2d_rho_u,     right, :, 0] = mdothalf * numpy.where(selector, u_L, u_R) + Phalf
-         # ifaces_flux[idx_2d_rho_w,     right, :, 0] = mdothalf * numpy.where(selector, w_L, w_R) 
-         # ifaces_flux[idx_2d_rho_theta, right, :, 0] = mdothalf * numpy.where(selector, e_L, e_R) + (Phalf*ahalf*Mhalf)
- 
-
-         # Left state
-         a_L = numpy.sqrt(heat_capacity_ratio * ifaces_pres[left, :, 1] / ifaces_var[idx_2d_rho, left, :, 1])
-         M_L = ifaces_var[idx_2d_rho_u, left, :, 1] / (ifaces_var[idx_2d_rho, left, :, 1] * a_L)
-
-         # Right state
-         a_R = numpy.sqrt(heat_capacity_ratio * ifaces_pres[right, :, 0] / ifaces_var[idx_2d_rho, right, :, 0])
-         M_R = ifaces_var[idx_2d_rho_u, right, :, 0] / ( ifaces_var[idx_2d_rho, right, :, 0] * a_R)
-
-         M = 0.25 * ((M_L + 1.)**2 - (M_R - 1.)**2)
-
-         ifaces_flux[0:3,right,:,0] = (ifaces_var[0:3,left,:,1] * numpy.maximum(0., M) * a_L) + \
-                                      (ifaces_var[0:3,right,:,0] * numpy.minimum(0., M) * a_R)
-         ifaces_flux[3,right,:,0]   = ((ifaces_var[3,left,:,1] + ifaces_pres[left,:,1]) * numpy.maximum(0., M) * a_L) + \
-                                      ((ifaces_var[3,right,:,0] + ifaces_pres[right,:,1]) * numpy.minimum(0., M) * a_R)
-
-         ifaces_flux[idx_2d_rho_u,right,:,0] += 0.5 * ((1. + M_L) * ifaces_pres[left,:,1] + \
-                                                      (1. - M_R) * ifaces_pres[right,:,0])
-
-         ifaces_flux[:,left,:,1] = ifaces_flux[:,right,:,0]
+         ifaces_flux[:, right, :, 0] = flux
+         ifaces_flux[:, left,  :, 1] = flux  # mirror
 
       if geom.xperiodic:
          ifaces_flux[:, 0, :, 0] = ifaces_flux[:, -1, :, 1]
+
+      
 
       # --- Compute the derivatives
       for elem in range(nb_elements_z):
          epais = elem * nbsolpts + standard_slice
          factor = 2.0 / geom.Δx3
+         if elem < geom.nb_elements_relief_layer:
+            factor = 2.0 / geom.relief_layer_delta
 
          df3_dx3[:, epais, :] = \
             (mtrx.diff_solpt @ flux_x3[:, epais, :] + mtrx.correction @ kfaces_flux[:, elem, :, :]) * factor
@@ -382,9 +256,27 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
       # --- Assemble the right-hand sides
       rhs = - ( df1_dx1 + df3_dx3 )
+      
+      rhs[idx_2d_rho_w,:,:] -= Q[idx_2d_rho,:,:] * gravity
 
-      rhs[idx_2d_rho_w,:,:] -= Qv[idx_2d_rho,:,:] * gravity
+      # TODO : Add sources terms for Brikman penalization
+      # It may be better to do this elementwise...
+      if geom.nb_elements_relief_layer > 1:
 
+         end = geom.nb_elements_relief_layer * nbsolpts
+         etac = 1.0 # 1e-1
+
+         normal_flux = numpy.where( \
+               geom.relief_boundary_mask,
+               geom.normals_x * df1_dx1[idx_2d_rho_u, :end, :] + geom.normals_z * df3_dx3[idx_2d_rho_w, :end, :],
+               0.0)
+
+         rhs[idx_2d_rho_u, :end, :] = numpy.where( \
+               geom.relief_mask, -(1.0 / etac) * normal_flux * geom.normals_x, rhs[idx_2d_rho_u, :end, :])
+         rhs[idx_2d_rho_w, :end, :] = numpy.where( \
+               geom.relief_mask, -(1.0 / etac) * normal_flux * geom.normals_z, rhs[idx_2d_rho_w, :end, :])
+
+      
       return rhs
 
    rhs   = compute_rhs(Q_total, geom, idx_2d_rho, idx_2d_rho_u, idx_2d_rho_w, idx_2d_rho_theta,  \
