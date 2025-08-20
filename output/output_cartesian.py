@@ -68,15 +68,15 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       print("{:.5e}".format(M))
       array = numpy.array([f"{M:.16e}"])   
       # Open the file in append mode and write the new values
-      with open("april21_b_400.txt", "a") as file:
-         # Convert array to string and append to the file
-         file.write(" ".join(map(str, array)) + "\n")
+      # with open("theta_AUSM_NOWB.txt", "a") as file:
+      #    # Convert array to string and append to the file
+      #    file.write(" ".join(map(str, array)) + "\n")
       # if step_id > 0:
       #    image_field(geom, w, filename, numpy.min(w), numpy.max(w), 20)
 
       plt.figure(figsize=(6, 4))
-      plt.plot(Q_total[2,:,20] / Q_total[0,:,20], geom.X3, 'bo-')
-      # plt.plot(Q_total[0,:,20], geom.X3, 'b-')
+      # plt.plot(Q_total[2,:,20] / Q_total[0,:,20], geom.X3, 'bo-')
+      plt.plot(Q_total[0,:,20], geom.X3, 'b-')
       plt.xlabel('w')
       plt.ylabel('z')
       plt.grid(True)

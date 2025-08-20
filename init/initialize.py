@@ -230,25 +230,17 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
 
       g        = 1
       gamma    = 5/3
+      kappa    = (gamma - 1.0) / gamma
       ρ0       = 1
       p0       = 1
       c        = 1 / (gamma - 1)
       z        = geom.X3
+      T        = 303.15     # Constant temperature (Isothermal)
 
-      ρ        = ρ0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
-      pressure_base = p0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
+      ρ        = ρ0 * numpy.exp(- (ρ0/p0) * g * z)
+      pressure = p0 * numpy.exp(- (ρ0/p0) * g * z)
 
-      # --- Add Gaussian disturbance to pressure
-      A     = 1e-15                   # Amplitude of pressure disturbance
-      z_bar = 0.5 * z.max()          # Center of Gaussian (mid-height)
-      δp    = A * numpy.exp(-100 * (z - z_bar)**2)
-
-      pressure = pressure_base + δp
-
-      # Here θ is energy
-      θ        = c*(pressure/ρ) + g*geom.X3
-    
-
+      θ        = T * (p0 / pressure) ** kappa # We used p0 = 1 here instead of p0 = 1000hpa
 
     
    elif param.case_number == 3:
@@ -319,36 +311,7 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
    Q[idx_2d_rho,:,:]       = ρ
    Q[idx_2d_rho_u,:,:]     = ρ * uu
    Q[idx_2d_rho_w,:,:]     = ρ * ww
-   Q[idx_2d_rho_theta,:,:] = ρ * θ
-
-   if param.case_number == 2:
-      theta_base                = numpy.ones_like(geom.X1)*param.bubble_theta
-      exner_base                = (1.0 - gravity / (cpd * theta_base) * geom.X3)
-      rho_base                  = 100000 / (Rd * theta_base) * exner_base**(cvd / Rd)
-      E_base                    = cvd*theta_base*exner_base + gravity*geom.X3    # We did not add 0.5*(u^2+w^2) because its zero
-      Q_tilda                   = numpy.zeros_like(Q)
-      Q_tilda[idx_2d_rho]       = rho_base
-      Q_tilda[idx_2d_rho_theta] = rho_base * E_base
-
-      Q                         = Q - Q_tilda
-   
-   
-   if param.case_number == 666:
-      gamma                     = 5/3
-      c                         = 1 / (gamma - 1)
-      g                         = 1
-      ρ0                        = 1
-      p0                        = 1
-      rho_base                  = ρ0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
-      pressure_base             = p0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
-      E_base                    = c*(pressure_base / rho_base) + g*geom.X3
-      Q_tilda                   = numpy.zeros_like(Q)
-      Q_tilda[idx_2d_rho]       = rho_base
-      Q_tilda[idx_2d_rho_theta] = rho_base * E_base
-
-      Q                         = Q - Q_tilda
-      
-      
+   Q[idx_2d_rho_theta,:,:] = ρ * θ      
 
 
    return Q
