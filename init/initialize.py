@@ -227,20 +227,13 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
       
    elif param.case_number == 666:
       # hydrostatic equilibrium
+      T0      = 300.0                                      # temperature
+      H       = Rd * T0 / gravity                          # scale height
+      t = T0
+      pressure = p0 * numpy.exp(-geom.X3 / H)
+      ρ = pressure / (Rd * t)
+      θ  = t * (p0 / pressure)**(Rd/cpd)
 
-      g        = 1
-      gamma    = 5/3
-      kappa    = (gamma - 1.0) / gamma
-      ρ0       = 1
-      p0       = 1
-      c        = 1 / (gamma - 1)
-      z        = geom.X3
-      T        = 303.15     # Constant temperature (Isothermal)
-
-      ρ        = ρ0 * numpy.exp(- (ρ0/p0) * g * z)
-      pressure = p0 * numpy.exp(- (ρ0/p0) * g * z)
-
-      θ        = T * (p0 / pressure) ** kappa # We used p0 = 1 here instead of p0 = 1000hpa
 
     
    elif param.case_number == 3:

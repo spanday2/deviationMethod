@@ -147,15 +147,15 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
    # --- Assemble the right-hand sides
    rhs = - ( df1_dx1 + df3_dx3 )
-   print(numpy.max(rhs[idx_2d_rho_w,:,:]), ' <- print rhs for w before adding gravity')
+   # print(numpy.max(rhs[idx_2d_rho_w,:,:]), ' <- print rhs for w before adding gravity')
 
    rhs[idx_2d_rho_w,:,:] -= Q[idx_2d_rho,:,:] * gravity
-   print(numpy.max(-Q[idx_2d_rho,:,:] * gravity), ' <- this should be fairly close to the previous print, with opposite sign')
-   print(numpy.max(rhs[idx_2d_rho_w,:,:]), ' <- this should be close to 0')
-   exit(0)
+   # print(numpy.max(-Q[idx_2d_rho,:,:] * gravity), ' <- this should be fairly close to the previous print, with opposite sign')
+   # print(numpy.max(rhs[idx_2d_rho_w,:,:]), ' <- this should be close to 0')
+   # exit(0)
 
-   print(numpy.max(abs(rhs[0])), numpy.max(abs(rhs[1])), numpy.max(abs(rhs[2])), numpy.max(abs(rhs[3])), ' <- they should all be 0')
-   exit(0)
+   # print(numpy.max(abs(rhs[0])), numpy.max(abs(rhs[1])), numpy.max(abs(rhs[2])), numpy.max(abs(rhs[3])), ' <- they should all be 0')
+   # exit(0)
 
    return rhs
 
