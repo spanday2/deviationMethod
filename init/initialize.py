@@ -234,7 +234,6 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
       ρ = pressure / (Rd * t)
       θ  = t * (p0 / pressure)**(Rd/cpd)
 
-
     
    elif param.case_number == 3:
       # Colliding bubbles
@@ -304,7 +303,18 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
    Q[idx_2d_rho,:,:]       = ρ
    Q[idx_2d_rho_u,:,:]     = ρ * uu
    Q[idx_2d_rho_w,:,:]     = ρ * ww
-   Q[idx_2d_rho_theta,:,:] = ρ * θ      
+   Q[idx_2d_rho_theta,:,:] = ρ * θ   
+   
+   if param.case_number == 666:
+      Q_base = numpy.zeros_like(Q)
+      T0      = 300.0                                      # temperature
+      H       = Rd * T0 / gravity                          # scale height
+      t = T0
+      pressure = p0 * numpy.exp(-geom.X3 / H)
+      Q_base[idx_2d_rho] = pressure / (Rd * t)
+      Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / pressure)**(Rd/cpd)  
+      
+      Q = Q - Q_base 
 
 
    return Q

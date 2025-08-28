@@ -6,7 +6,7 @@ from common.definitions     import idx_2d_rho       as RHO,           \
                                    idx_2d_rho_w     as RHO_W,         \
                                    idx_2d_rho_u     as RHO_U,         \
                                    idx_2d_rho_theta as RHO_THETA
-from common.definitions     import gravity, Rd, cvd, cpd, heat_capacity_ratio, p0
+from common.definitions     import *
 from common.graphx          import image_field
 from common.program_options import Configuration
 from geometry               import Geometry
@@ -40,49 +40,45 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       image_field(geom, Theta, filename, 303.1, 303.7, 7)
 
    elif param.case_number == 666:
-      # Calculate the base state
-      gamma                     = 5/3
-      c                         = 1 / (gamma - 1)
-      g                         = 1
-      ρ0                        = 1
-      p0                        = 1
-      rho_base                  = ρ0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
-      pressure_base             = p0 * numpy.exp(- (ρ0/p0) * g * geom.X3)
-      E_base                    = c*(pressure_base / rho_base) + g*geom.X3
-      Q_tilda                   = numpy.zeros_like(Q)
-      Q_tilda[RHO]              = rho_base
-      Q_tilda[RHO_THETA]        = rho_base * E_base
+      
+      Q_base = numpy.zeros_like(Q)
+      T0      = 300.0                                      # temperature
+      H       = Rd * T0 / gravity                          # scale height
+      t = T0
+      pressure = p0 * numpy.exp(-geom.X3 / H)
+      Q_base[idx_2d_rho] = pressure / (Rd * t)
+      Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / pressure)**(Rd/cpd)  
 
+      Q_total = Q + Q_base
+
+      
       # Calculate the total Q vector
-      Q_total                   = Q + Q_tilda
-
-      # Convert Energy to potential temperature
-      e                         = Q_total[RHO_THETA,:,:] / Q_total[RHO,:,:]
       w                         = Q_total[RHO_W,:,:] / Q_total[RHO,:,:]
       u                         = Q_total[RHO_U,:,:] / Q_total[RHO,:,:]
       rho                       = Q_total[RHO]
-      pressure                  = (gamma-1)*(Q_total[RHO_THETA] - 0.5*rho*(u**2+w**2) - rho*g*geom.X3)
+
+      pressure = p0 * numpy.exp((cpd/cvd) * numpy.log((Rd/p0)*Q_total[idx_2d_rho_theta, :, :]))
       
-      c = numpy.sqrt(gamma*pressure / rho)
+      c = numpy.sqrt(heat_capacity_ratio*pressure / rho)
       M = (numpy.sqrt(u**2+w**2) / c).max()
       print("{:.5e}".format(M))
       array = numpy.array([f"{M:.16e}"])   
-      # Open the file in append mode and write the new values
-      # with open("theta_AUSM_NOWB.txt", "a") as file:
+      #Open the file in append mode and write the new values
+      # with open("theta_AUSM_WB.txt", "a") as file:
       #    # Convert array to string and append to the file
       #    file.write(" ".join(map(str, array)) + "\n")
       # if step_id > 0:
       #    image_field(geom, w, filename, numpy.min(w), numpy.max(w), 20)
 
-      plt.figure(figsize=(6, 4))
-      # plt.plot(Q_total[2,:,20] / Q_total[0,:,20], geom.X3, 'bo-')
-      plt.plot(Q_total[0,:,20], geom.X3, 'b-')
-      plt.xlabel('w')
-      plt.ylabel('z')
-      plt.grid(True)
-      # Save the figure
-      plt.savefig(filename)
-      plt.close() 
+      # plt.figure(figsize=(6, 4))
+      # # plt.plot(Q_total[2,:,20] / Q_total[0,:,20], geom.X3, 'bo-')
+      # plt.plot(Q[0,:,20], geom.X3, 'b-')
+      # plt.xlabel('w')
+      # plt.ylabel('z')
+      # plt.grid(True)
+      # # Save the figure
+      # plt.savefig(filename)
+      # plt.close() 
 
 
    elif param.case_number == 3:
