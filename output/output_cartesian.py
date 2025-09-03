@@ -42,12 +42,12 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
    elif param.case_number == 666:
       
       Q_base = numpy.zeros_like(Q)
-      T0      = 300.0                                      # temperature
-      H       = Rd * T0 / gravity                          # scale height
-      t = T0
-      pressure = p0 * numpy.exp(-geom.X3 / H)
-      Q_base[idx_2d_rho] = pressure / (Rd * t)
-      Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / pressure)**(Rd/cpd)  
+      # T0      = 300.0                                      # temperature
+      # H       = Rd * T0 / gravity                          # scale height
+      # t = T0
+      # pressure = p0 * numpy.exp(-geom.X3 / H)
+      # Q_base[idx_2d_rho] = pressure / (Rd * t)
+      # Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / pressure)**(Rd/cpd)  
 
       Q_total = Q + Q_base
 
@@ -71,8 +71,8 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       #    image_field(geom, w, filename, numpy.min(w), numpy.max(w), 20)
 
       # plt.figure(figsize=(6, 4))
-      # # plt.plot(Q_total[2,:,20] / Q_total[0,:,20], geom.X3, 'bo-')
-      # plt.plot(Q[0,:,20], geom.X3, 'b-')
+      # plt.plot(Q_total[2,:,20] / Q_total[0,:,20], geom.X3, 'bo-')
+      # # plt.plot(Q[0,:,20], geom.X3, 'b-')
       # plt.xlabel('w')
       # plt.ylabel('z')
       # plt.grid(True)

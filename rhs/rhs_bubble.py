@@ -4,17 +4,61 @@ from common.definitions import idx_2d_rho, idx_2d_rho_u, idx_2d_rho_w, idx_2d_rh
                                p0, Rd, cpd, cvd, heat_capacity_ratio, gravity
 
 
-def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
+def ausm_plus_flux(
+    U_L, U_R,                 # (neq, N) left/right conserved states at the interface
+    p_L, p_R,                 # (N,) pressures on L/R
+    gamma,                    # heat_capacity_ratio
+    *,
+    idx_rho, idx_u, idx_w, idx_E,
+    normal="z",               # "z" for vertical faces (normal=w), "x" for horizontal (normal=u)
+    eps=1e-14):
+    """
+    Vectorized AUSM+ (simplified, matching your current formula).
+    Returns interfacial flux F_int with shape (neq, N).
 
-   Q_base                   = numpy.zeros_like(Q)
-   T0                       = 300.0                                      # temperature
-   H                        = Rd * T0 / gravity                          # scale height
-   t                        = T0
-   pressure                 = p0 * numpy.exp(-geom.X3 / H)
-   Q_base[idx_2d_rho]       = pressure / (Rd * t)
-   Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / pressure)**(Rd/cpd)  
-   
-   Q_total                  = Q + Q_base
+    U = [rho, rho*u, rho*w, rho*E] with indices passed in.
+    """
+    neq, N = U_L.shape
+    out_dtype = U_L.dtype
+
+    rho_L = U_L[idx_rho]
+    rho_R = U_R[idx_rho]
+
+    # Normal velocity component (u or w) on each side
+    if normal == "z":
+        mom_idx = idx_w
+        vL = U_L[idx_w] / rho_L
+        vR = U_R[idx_w] / rho_R
+    elif normal == "x":
+        mom_idx = idx_u
+        vL = U_L[idx_u] / rho_L
+        vR = U_R[idx_u] / rho_R
+
+    # Speed of sound on each side
+    a_L = numpy.sqrt(numpy.maximum(gamma * p_L / rho_L, 0.0))
+    a_R = numpy.sqrt(numpy.maximum(gamma * p_R / rho_R, 0.0))
+
+    # Mach numbers
+    M_L = vL / a_L
+    M_R = vR / a_R
+
+    # Your current AUSM+ face Mach blending
+    M_face = 0.25 * ((M_L + 1.0)**2 - (M_R - 1.0)**2)
+
+    # Mass flux split
+    m_plus  = numpy.maximum(0.0, M_face) * a_L
+    m_minus = numpy.minimum(0.0, M_face) * a_R
+
+    # Convective part (broadcast over equations)
+    F = (U_L * m_plus) + (U_R * m_minus)
+
+    # Pressure part to normal momentum (your current formula)
+    F[mom_idx] += 0.5 * ((1.0 + M_L) * p_L + (1.0 - M_R) * p_R)
+
+    return F.astype(out_dtype, copy=False)
+
+
+def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
    
    def rhs(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
       datatype = Q.dtype
@@ -97,22 +141,22 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
          left  = itf - 1
          right = itf
 
-         # Left state
-         a_L = numpy.sqrt(heat_capacity_ratio * kfaces_pres[left, 1, :] / kfaces_var[idx_2d_rho, left, 1, :])
-         M_L = kfaces_var[idx_2d_rho_w, left, 1, :] / (kfaces_var[idx_2d_rho, left, 1, :] * a_L)
+         # Gather left/right slices (shape (neq, N))
+         UL = kfaces_var[:, left,  1, :]
+         UR = kfaces_var[:, right, 0, :]
 
-         # Right state
-         a_R = numpy.sqrt(heat_capacity_ratio * kfaces_pres[right, 0, :] / kfaces_var[idx_2d_rho, right, 0, :])
-         M_R = kfaces_var[idx_2d_rho_w, right, 0, :] / (kfaces_var[idx_2d_rho, right, 0, :] * a_R)
+         pL = kfaces_pres[left,  1, :]
+         pR = kfaces_pres[right, 0, :]
 
-         M = 0.25 * (( M_L + 1.)**2 - (M_R - 1.)**2)
+         flux = ausm_plus_flux(
+            UL, UR, pL, pR,
+            gamma=heat_capacity_ratio,
+            idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_E=idx_2d_rho_theta,
+            normal="z"
+         )
 
-         kfaces_flux[:,right,0,:] = (kfaces_var[:,left,1,:] * numpy.maximum(0., M) * a_L) + \
-                                    (kfaces_var[:,right,0,:] * numpy.minimum(0., M) * a_R)
-         kfaces_flux[idx_2d_rho_w,right,0,:] += 0.5 * ((1. + M_L) * kfaces_pres[left,1,:] + \
-                                                      (1. - M_R) * kfaces_pres[right,0,:])
-
-         kfaces_flux[:,left,1,:] = kfaces_flux[:,right,0,:]
+         kfaces_flux[:, right, 0, :] = flux
+         kfaces_flux[:, left,  1, :] = flux  # mirror
 
 
       start = 0 if geom.xperiodic else 1
@@ -121,22 +165,21 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
          left  = itf - 1
          right = itf
 
-         # Left state
-         a_L = numpy.sqrt(heat_capacity_ratio * ifaces_pres[left, :, 1] / ifaces_var[idx_2d_rho, left, :, 1])
-         M_L = ifaces_var[idx_2d_rho_u, left, :, 1] / (ifaces_var[idx_2d_rho, left, :, 1] * a_L)
+         UL = ifaces_var[:, left,  :, 1]   # (neq, N)
+         UR = ifaces_var[:, right, :, 0]
 
-         # Right state
-         a_R = numpy.sqrt(heat_capacity_ratio * ifaces_pres[right, :, 0] / ifaces_var[idx_2d_rho, right, :, 0])
-         M_R = ifaces_var[idx_2d_rho_u, right, :, 0] / ( ifaces_var[idx_2d_rho, right, :, 0] * a_R)
+         pL = ifaces_pres[left,  :, 1]     # (N,)
+         pR = ifaces_pres[right, :, 0]
 
-         M = 0.25 * ((M_L + 1.)**2 - (M_R - 1.)**2)
+         flux = ausm_plus_flux(
+            UL, UR, pL, pR,
+            gamma=heat_capacity_ratio,
+            idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_E=idx_2d_rho_theta,
+            normal="x"
+         )
 
-         ifaces_flux[:,right,:,0] = (ifaces_var[:,left,:,1] * numpy.maximum(0., M) * a_L) + \
-                                    (ifaces_var[:,right,:,0] * numpy.minimum(0., M) * a_R)
-         ifaces_flux[idx_2d_rho_u,right,:,0] += 0.5 * ((1. + M_L) * ifaces_pres[left,:,1] + \
-                                                      (1. - M_R) * ifaces_pres[right,:,0])
-
-         ifaces_flux[:,left,:,1] = ifaces_flux[:,right,:,0]
+         ifaces_flux[:, right, :, 0] = flux
+         ifaces_flux[:, left,  :, 1] = flux  # mirror
 
       if geom.xperiodic:
          ifaces_flux[:, 0, :, 0] = ifaces_flux[:, -1, :, 1]
@@ -166,10 +209,10 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
       return rhs
    
-   t_rhs = rhs(Q_total, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z)
-   b_rhs = rhs(Q_base, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z)
+   t_rhs = rhs(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z)
+
    
    
-   return numpy.longdouble(t_rhs) - numpy.longdouble(b_rhs)
+   return t_rhs
 
       
