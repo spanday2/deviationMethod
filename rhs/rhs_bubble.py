@@ -56,6 +56,118 @@ def ausm_plus_flux(
     F[mom_idx] += 0.5 * ((1.0 + M_L) * p_L + (1.0 - M_R) * p_R)
 
     return F.astype(out_dtype, copy=False)
+ 
+
+def ausm_plus_up_flux(
+    U_L, U_R,                 # (neq, N)
+    p_L, p_R,                 # (N,)
+    gamma,                    # heat_capacity_ratio
+    *,
+    idx_rho, idx_u, idx_w, idx_theta,
+    normal="z"):
+   
+    """
+    AUSM+up interfacial flux for conserved state [rho, rho*u, rho*w, rho*theta].
+    NO safety checks: raw divisions and square-roots.
+    Returns F with shape (neq, N).
+    """
+    neq, N = U_L.shape
+    dtype  = U_L.dtype
+
+    rho_L = U_L[idx_rho]
+    rho_R = U_R[idx_rho]
+
+    if normal == "z":
+        mom_n = idx_w
+        vL = U_L[idx_w] / rho_L 
+        vR = U_R[idx_w] / rho_R
+        uL = U_L[idx_u] / rho_L
+        uR = U_R[idx_u] / rho_R
+    elif normal == "x":
+        mom_n = idx_u
+        vL = U_L[idx_u] / rho_L
+        vR = U_R[idx_u] / rho_R
+        wL = U_L[idx_w] / rho_L
+        wR = U_R[idx_w] / rho_R
+    else:
+        raise ValueError("normal must be 'z' or 'x'")
+
+    # Sound speeds (no clipping)
+    a_L         = numpy.sqrt(gamma * p_L / rho_L)
+    a_R         = numpy.sqrt(gamma * p_R / rho_R)
+    a_half      = 0.5 * (a_L + a_R)
+    a_half_sq   = a_half * a_half
+
+    # AUSM+up constants
+    sigma   = 1.0
+    K_p     = 0.25
+    K_u     = 0.75
+    beta    = 1.0 / 8.0
+    M_inf_u = 1e-3
+    M_inf_p = 1
+
+    # Interface Mach numbers (using a_h)
+    M_L = vL / a_half
+    M_R = vR / a_half
+
+    # Mbar^2
+    Mbar_sq = (vL**2 + vR**2) / (2.0 * a_half_sq)
+
+    # fa for pressure term (Liou)
+    Mo_p_sq = numpy.minimum(1.0, numpy.maximum(Mbar_sq, M_inf_p**2))
+    Mo_p    = numpy.sqrt(Mo_p_sq)
+    fa_p    = Mo_p * (2.0 - Mo_p)
+    
+
+    # Convective Mach split polynomials
+    Mplus  =  0.25 * (M_L + 1.0)**2 * (1.0 + 16.0 * beta * 0.25 * (M_L - 1.0)**2)
+    Mminus = -0.25 * (M_R - 1.0)**2 * (1.0 + 16.0 * beta * 0.25 * (M_R + 1.0)**2)
+
+    rho_half  = 0.5 * (rho_L + rho_R)
+    M_half = Mplus + Mminus - K_p * (1.0 / fa_p) * numpy.maximum(1.0 - sigma * Mbar_sq, 0.0) * ((p_R - p_L) / (rho_half * a_half_sq))
+
+    # Mass flux
+    up_L     = (M_half > 0.0)
+    mdothalf = a_half * M_half * numpy.where(up_L, rho_L, rho_R)
+
+    # Pressure flux split
+    Mo_u_sq = numpy.minimum(1.0, numpy.maximum(Mbar_sq, M_inf_u**2))
+    Mo_u    = numpy.sqrt(Mo_u_sq)
+    fa_u    = Mo_u * (2.0 - Mo_u)
+    alpha   = (3.0/16.0) * (-4.0 + 5.0 * fa_u * fa_u)
+
+    Pplus  =  0.25 * (M_L + 1.0)**2 * ((2.0 - M_L) + 16.0 * alpha * M_L * 0.25 * (M_L - 1.0)**2)
+    Pminus = -0.25 * (M_R - 1.0)**2 * ((-2.0 - M_R) + 16.0 * alpha * M_R * 0.25 * (M_R + 1.0)**2)
+
+    Phalf = (Pplus * p_L
+             + Pminus * p_R
+             - K_u * Pplus * Pminus * (rho_L + rho_R) * a_half * fa_u * (vR - vL))
+    
+    selector = mdothalf > 0
+    
+    if normal == "z":
+        u_up = numpy.where(selector, uL, uR)    # tangential
+        w_up = numpy.where(selector, vL, vR)    # normal
+    else:  # normal == "x"
+        w_up = numpy.where(selector, wL, wR)    # tangential
+        u_up = numpy.where(selector, vL, vR)    # normal
+        
+    # Upwinded theta
+    theta_L  = U_L[idx_theta] / rho_L
+    theta_R  = U_R[idx_theta] / rho_R
+    theta_up = numpy.where(selector, theta_L, theta_R) 
+
+    # Build flux
+    F = numpy.zeros_like(U_L, dtype=dtype)
+    F[idx_rho]   = mdothalf
+    F[idx_u]     = mdothalf * u_up
+    F[idx_w]     = mdothalf * w_up
+    F[mom_n]    += Phalf                 # pressure only to normal momentum
+    F[idx_theta] = mdothalf * theta_up       # advect rho*theta
+
+    return F
+
+
 
 
 def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
@@ -96,8 +208,6 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
       flux_x3[idx_2d_rho_w,:,:]     = Q[idx_2d_rho_w,:,:] * ww + pressure
       flux_x3[idx_2d_rho_theta,:,:] = Q[idx_2d_rho_theta,:,:] * ww
 
-
-   #   print(numpy.max(flux_x3[idx_2d_rho_w,:,:])); exit(0)
 
       # --- Interpolate to the element interface
       standard_slice = numpy.arange(nbsolpts)
@@ -153,9 +263,9 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
       
       r = numpy.ones_like(nbsolpts*nb_elements_x)
       
-      flux = ausm_plus_flux(
+      flux = ausm_plus_up_flux(
             kfaces_var[:,-1,1,:], UB_right_var, kfaces_pres[-1, 1, :], p_base*r,
-            gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_E=idx_2d_rho_theta,
+            gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
             normal="z"
          )
       
@@ -168,9 +278,9 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
       LB_left_var[idx_2d_rho_w]        = -kfaces_var[idx_2d_rho_w,0,0,:]
       LB_left_var[idx_2d_rho_theta]    = p0 / Rd
       
-      flux = ausm_plus_flux(
+      flux = ausm_plus_up_flux(
             LB_left_var, kfaces_var[:,0,0,:], p0*r, kfaces_pres[ 0, 0, :],
-            gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_E=idx_2d_rho_theta,
+            gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
             normal="z"
          )
       
@@ -191,10 +301,10 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
          pL = kfaces_pres[left,  1, :]
          pR = kfaces_pres[right, 0, :]
 
-         flux = ausm_plus_flux(
+         flux = ausm_plus_up_flux(
             UL, UR, pL, pR,
             gamma=heat_capacity_ratio,
-            idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_E=idx_2d_rho_theta,
+            idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
             normal="z"
          )
 
@@ -214,10 +324,10 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
          pL = ifaces_pres[left,  :, 1]     # (N,)
          pR = ifaces_pres[right, :, 0]
 
-         flux = ausm_plus_flux(
+         flux = ausm_plus_up_flux(
             UL, UR, pL, pR,
             gamma=heat_capacity_ratio,
-            idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_E=idx_2d_rho_theta,
+            idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
             normal="x"
          )
 

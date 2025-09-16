@@ -64,7 +64,7 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       print("{:.5e}".format(M))
       array = numpy.array([f"{M:.16e}"])   
       #Open the file in append mode and write the new values
-      with open("config25m_2.txt", "a") as file:
+      with open("configAUSMplusUP_v6.txt", "a") as file:
          # Convert array to string and append to the file
          file.write(" ".join(map(str, array)) + "\n")
       # if step_id > 0:
