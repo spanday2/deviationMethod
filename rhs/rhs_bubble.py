@@ -9,7 +9,7 @@ def ausm_plus_flux(
     p_L, p_R,                 # (N,) pressures on L/R
     gamma,                    # heat_capacity_ratio
     *,
-    idx_rho, idx_u, idx_w, idx_E,
+    idx_rho, idx_u, idx_w, idx_theta,
     normal="z",               # "z" for vertical faces (normal=w), "x" for horizontal (normal=u)
     eps=1e-14):
     """
@@ -165,9 +165,7 @@ def ausm_plus_up_flux(
     F[mom_n]    += Phalf                 # pressure only to normal momentum
     F[idx_theta] = mdothalf * theta_up       # advect rho*theta
 
-    return F
-
-
+    return F  
 
 
 def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
@@ -263,7 +261,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
       
       r = numpy.ones_like(nbsolpts*nb_elements_x)
       
-      flux = ausm_plus_up_flux(
+      flux = ausm_plus_flux(
             kfaces_var[:,-1,1,:], UB_right_var, kfaces_pres[-1, 1, :], p_base*r,
             gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
             normal="z"
@@ -278,7 +276,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
       LB_left_var[idx_2d_rho_w]        = -kfaces_var[idx_2d_rho_w,0,0,:]
       LB_left_var[idx_2d_rho_theta]    = p0 / Rd
       
-      flux = ausm_plus_up_flux(
+      flux = ausm_plus_flux(
             LB_left_var, kfaces_var[:,0,0,:], p0*r, kfaces_pres[ 0, 0, :],
             gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
             normal="z"
@@ -301,7 +299,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
          pL = kfaces_pres[left,  1, :]
          pR = kfaces_pres[right, 0, :]
 
-         flux = ausm_plus_up_flux(
+         flux = ausm_plus_flux(
             UL, UR, pL, pR,
             gamma=heat_capacity_ratio,
             idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
@@ -324,7 +322,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
          pL = ifaces_pres[left,  :, 1]     # (N,)
          pR = ifaces_pres[right, :, 0]
 
-         flux = ausm_plus_up_flux(
+         flux = ausm_plus_flux(
             UL, UR, pL, pR,
             gamma=heat_capacity_ratio,
             idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
@@ -362,9 +360,20 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
       return rhs
    
-   t_rhs = rhs(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z)
+   # hydrostatic equilibrium
+   # Q_base = numpy.zeros_like(Q)
+   # T0      = 300.0                                      # temperature
+   # H       = Rd * T0 / gravity                          # scale height
+   # t = T0
+   # pressure = p0 * numpy.exp(-geom.X3 / H)
+   # Q_base[idx_2d_rho] = pressure / (Rd * t)
+   # Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / pressure)**(Rd/cpd)  
 
+   # Q_total = Q + Q_base
    
+   t_rhs = rhs(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z)
+   # b_rhs = rhs(Q_base, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z)
+
    
    return t_rhs
 
