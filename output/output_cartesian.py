@@ -38,7 +38,19 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       Theta                     =  1/(cvd*exner)*(e - 0.5*(u**2 + w**2) - gravity*geom.X3)
       
       image_field(geom, Theta, filename, 303.1, 303.7, 7)
-
+   
+   elif param.case_number == 651:
+      rho                       = Q[RHO]
+      w                         = Q[RHO_W,:,:] / Q[RHO,:,:]
+      u                         = Q[RHO_U,:,:] / Q[RHO,:,:]
+      theta                     = Q[RHO_THETA,:,:] / Q[RHO,:,:]
+      # pressure = p0 * numpy.exp((cpd/cvd) * numpy.log((Rd/p0)*Q[idx_2d_rho_theta, :, :]))
+      pressure = rho * Rd * theta
+      c = numpy.sqrt(heat_capacity_ratio*pressure / rho)
+      M = (numpy.sqrt(u**2+w**2) / c)
+      image_field(geom, M, filename, M.min(), M.max(), 20)
+      
+      
    elif param.case_number == 666:
       
       Q_base = numpy.zeros_like(Q)
@@ -64,7 +76,7 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       print("{:.5e}".format(M))
       array = numpy.array([f"{M:.16e}"])   
       #Open the file in append mode and write the new values
-      with open("LowerOrder_no_wb_withDist2.txt", "a") as file:
+      with open("LowerOrder_no_wb_withDist3.txt", "a") as file:
          # Convert array to string and append to the file
          file.write(" ".join(map(str, array)) + "\n")
       # if step_id > 0:

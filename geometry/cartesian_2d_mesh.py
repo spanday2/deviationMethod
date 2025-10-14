@@ -70,6 +70,7 @@ class Cartesian2D(Geometry):
       self.relief_layer_delta = Δrelief_layer
       self.nb_elements_relief_layer = nb_elements_relief_layer
       self.xperiodic = True
+      self.zperiodic = True
 
 
    def make_mountain(self, mountain_type='sine'):

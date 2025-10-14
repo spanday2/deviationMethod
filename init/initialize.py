@@ -4,7 +4,7 @@ import pdb
 from common.definitions      import idx_rho, idx_rho_u1, idx_rho_u2, idx_rho_w, idx_rho_theta,                 \
                                     idx_h, idx_u1, idx_u2, idx_hu1, idx_hu2,                                   \
                                     idx_2d_rho, idx_2d_rho_u, idx_2d_rho_w, idx_2d_rho_theta,                  \
-                                    gravity, cpd, cvd, Rd, p0
+                                    gravity, cpd, cvd, Rd, p0, heat_capacity_ratio
 from common.program_options  import Configuration
 from init.dcmip              import dcmip_advection_deformation, dcmip_advection_hadley, dcmip_gravity_wave,   \
                                     dcmip_schar_waves, dcmip_steady_state_mountain, dcmip_baroclinic_instability, acoustic_wave
@@ -233,6 +233,54 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
       pressure = p0 * numpy.exp(-geom.X3 / H)
       ρ = pressure / (Rd * t)
       θ  = t * (p0 / pressure)**(Rd/cpd)
+      
+   elif param.case_number == 651:
+      gamma = heat_capacity_ratio#5/3
+      Mmax = 0.4
+      T0 = 300.0
+      # Center the vortex
+      xc, yc = 0.5, 0.5
+      x = geom.X1 - xc
+      y = geom.X3 - yc
+      r = numpy.sqrt(x**2 + y**2)
+      phi = numpy.arctan2(y, x)
+
+      # Parameters
+      ρ = numpy.ones_like(r)
+      u_phi = numpy.zeros_like(r)
+
+      # Velocity profile
+      for i in range(r.shape[0]):
+         for j in range(r.shape[1]):
+            if r[i, j] < 0.2:
+                  u_phi[i, j] = 5 * r[i, j]
+            elif r[i, j] >= 0.2 and r[i, j] < 0.4:
+                  u_phi[i, j] = 2 - 5 * r[i, j]
+            else:
+                  u_phi[i, j] = 0
+
+      # Cartesian velocities
+      uu = -u_phi * numpy.sin(phi)
+      ww =  u_phi * numpy.cos(phi)
+
+      # Pressure profile (equation 4.1.3)
+      p_base = ρ[0,0] * 1**2 / (gamma * Mmax**2) # Max u_phi = 1
+      
+      p = numpy.zeros_like(r)
+      # Region 1: r <= 0.2
+      m1 = (r < 0.2)
+      p[m1] = p_base + 0.5 * 25 * r[m1]**2
+      # Region 2: 0.2 < r < 0.4
+      m2 = (r >= 0.2) & (r < 0.4)
+      p[m2] = (p_base + 0.5*25*r[m2]**2 + 4*(1 - 5*r[m2] - numpy.log(0.2) + numpy.log(r[m2])))
+      # Region 3: r >= 0.4
+      m3 = (r >= 0.4)
+      p[m3] = (p_base - 2 + 4 * numpy.log(2))
+      
+      # Potential temperature (θ)
+      θ  = p /(Rd*ρ)
+
+
 
     
    elif param.case_number == 3:
@@ -300,7 +348,7 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
 
    # ρ = 100000 / (Rd * θ) * exner**(cvd / Rd)
    
-   ρ[5:10,5:10] += 1e-13
+   # ρ[5:10,5:10] += 1e-13 # Disturbance for stratified atmospheric test case
 
 
    Q[idx_2d_rho,:,:]       = ρ
