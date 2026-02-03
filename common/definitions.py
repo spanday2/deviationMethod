@@ -2,10 +2,10 @@ nbfaces     = 6
 
 day_in_secs  = 24.0 * 3600.0    # Days in seconds
 
-gravity      = 0 #9.80616        # Gravitational acceleration (m s^-2)
+gravity      = 9.80616  #0      # Gravitational acceleration (m s^-2)
 
 
-Rd  = 1 #287.05  # J K-1 kg-1 ! gas constant for dry air
+Rd  = 287.05 #1  # J K-1 kg-1 ! gas constant for dry air
 cpd = 1005.46
 cvd = (cpd - Rd)  # chal. spec. air sec (volume constant) [J kg-1 K-1]
 kappa = Rd / cpd

@@ -512,7 +512,7 @@ def dcmip_steady_state_mountain(geom: CubedSphere, metric, mtrx, param):
    # theta += 1e-2*numpy.random.randn(*theta[:,0,0].shape)[:,None,None]
    # theta += 1e-2*numpy.random.randn(*theta.shape)
 
-   return rho, u1_contra, u2_contra, w, theta
+   return rho-rho, u1_contra-u1_contra, u2_contra-u2_contra, w-w, theta-theta
 
 
 
