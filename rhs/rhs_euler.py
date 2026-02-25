@@ -9,173 +9,183 @@ from common.parallel import DistributedWorld
 from geometry        import CubedSphere, DFROperators, Metric3DTopo
 from init.dcmip      import dcmip_schar_damping  #, dcmip_damping
 
-
-def ausm_plus_up_3d_vert(
+def ausm_3d_vert(
     variables_itf_k: numpy.ndarray,
     pressure_itf_k: numpy.ndarray,
-    w_itf_k: numpy.ndarray,
     metric,
     flux_x3_itf_k: numpy.ndarray,
     wflux_adv_x3_itf_k: numpy.ndarray,
     wflux_pres_x3_itf_k: numpy.ndarray,
-    nb_interfaces_vert: int,
-    K_p: float = 0.25,
-    K_u: float = 0.75,
-    sigma: float = 1.0,
-    beta: float = 1/8,
-   ):
-   
-    #DEBUG
-   #  variables_itf_k.fill(0.1)
-   #  pressure_itf_k.fill(0.1)
-   #  variables_itf_k[idx_rho_w].fill(0)
-   #  w_itf_k.fill(0.1)
-   #  metric.sqrtG_itf_k.fill(1)
-   #  metric.H_contra_31_itf_k.fill(1)
-   #  metric.H_contra_32_itf_k.fill(1)
-   #  metric.H_contra_33_itf_k.fill(1)
-
-    # -----------------------------------------------------------
-    # Loop over vertical interfaces in same style as Rusanov
-    # -----------------------------------------------------------
+    nb_interfaces_vert: int
+):
     for itf in range(nb_interfaces_vert):
+        elem_D = itf       # Below interface
+        elem_U = itf + 1   # Above interface
 
-        elem_D = itf       # "down" element (below the interface)
-        elem_U = itf + 1   # "up"   element (above the interface)
-
-        # ---------------- LEFT/RIGHT (D/U) STATES ----------------
-        # Conservative variables
-        rho_D       = variables_itf_k[idx_rho,     :, elem_D, 1, :]
-        rho_U       = variables_itf_k[idx_rho,     :, elem_U, 0, :]
-        rho_u1_D    = variables_itf_k[idx_rho_u1,  :, elem_D, 1, :]
-        rho_u1_U    = variables_itf_k[idx_rho_u1,  :, elem_U, 0, :]
-        rho_u2_D    = variables_itf_k[idx_rho_u2,  :, elem_D, 1, :]
-        rho_u2_U    = variables_itf_k[idx_rho_u2,  :, elem_U, 0, :]
-        rho_w_D     = variables_itf_k[idx_rho_w,  :, elem_D, 1, :]
-        rho_w_U     = variables_itf_k[idx_rho_w,  :, elem_U, 0, :]
-        rho_theta_D = variables_itf_k[idx_rho_theta, :, elem_D, 1, :]
-        rho_theta_U = variables_itf_k[idx_rho_theta, :, elem_U, 0, :]
-
-
-        # Pressure at interface from each side
-        p_D = pressure_itf_k[:, elem_D, 1, :]
-        p_U = pressure_itf_k[:, elem_U, 0, :]
-
-        # Metric terms (at the interface itf)
-        sqrtG_face = metric.sqrtG_itf_k[itf, :, :]          # same for both sides
+        # ---  Metrics & States ---
+        sqrtG_face = metric.sqrtG_itf_k[itf, :, :]
         h31_face   = metric.H_contra_31_itf_k[itf, :, :]
         h32_face   = metric.H_contra_32_itf_k[itf, :, :]
-        h33_face   = metric.H_contra_33_itf_k[itf, :, :]    # for speed of sound and rho-w momentum
-      
-        # ---------------- PRIMITIVE VARIABLES ----------------
-        u1_D = rho_u1_D / rho_D
-        u1_U = rho_u1_U / rho_U
+        h33_face   = metric.H_contra_33_itf_k[itf, :, :]
 
-        u2_D = rho_u2_D / rho_D
-        u2_U = rho_u2_U / rho_U
+        rho_D = variables_itf_k[idx_rho, :, elem_D, 1, :]
+        rho_U = variables_itf_k[idx_rho, :, elem_U, 0, :]
+        w_D = variables_itf_k[idx_rho_w, :, elem_D, 1, :] / rho_D
+        w_U = variables_itf_k[idx_rho_w, :, elem_U, 0, :] / rho_U
+        p_D   = pressure_itf_k[:, elem_D, 1, :]
+        p_U   = pressure_itf_k[:, elem_U, 0, :]
 
-        w_D = rho_w_D / rho_D
-        w_U = rho_w_U / rho_U
+        a_D = numpy.sqrt(h33_face * heat_capacity_ratio * p_D / numpy.maximum(rho_D, 1e-12))
+        a_U = numpy.sqrt(h33_face * heat_capacity_ratio * p_U / numpy.maximum(rho_U, 1e-12))
         
-        theta_D = rho_theta_D / rho_D
-        theta_U = rho_theta_U / rho_U
-
-        a_D = numpy.sqrt(h33_face * heat_capacity_ratio * p_D / rho_D)
-        a_U = numpy.sqrt(h33_face * heat_capacity_ratio * p_U / rho_U)
-        a_half = 0.5 * (a_D + a_U)
-        a_half_sq   = a_half * a_half
-        # Mach numbers based on a_half
-        M_D = w_D / a_half
-        M_U = w_U / a_half
+        M_D = w_D / a_D
+        M_U = w_U / a_U
         
-        M_D[numpy.where(numpy.isnan(M_D))] = 0.0
-        M_U[numpy.where(numpy.isnan(M_U))] = 0.0
+        M_D[numpy.isnan(M_D)] = 0.0
+        M_U[numpy.isnan(M_U)] = 0.0
         
-        # ---------------- MACH SPLITTING & CORRECTIONS ---------
-        rho_half = 0.5 * (rho_D + rho_U)
-        Mbar_sq = (w_D**2 + w_U**2) / (2.0 * a_half_sq)
-        denom    = rho_half * a_half**2
+        # Interface Mach number
+        M   = 0.25 * ((M_D + 1)**2 - (M_U - 1)**2)
+        P   = 0.5 * (p_D * (1 + M_D) + p_U * (1 - M_U))
         
-        # fa for pressure term (Liou)
-        M_inf_p = 1       
-        Mo_p_sq = numpy.minimum(1.0, numpy.maximum(Mbar_sq, M_inf_p**2))
-        Mo_p    = numpy.sqrt(Mo_p_sq)
-        fa_p    = 1 #Mo_p * (2.0 - Mo_p)
+        # --- Advection Flux ---
+        # Upwinding logic: M > 0 uses Down state (elem_D), M < 0 uses Up state (elem_U)
+        adv_flux = sqrtG_face * (
+            numpy.maximum(0, M) * a_D * variables_itf_k[:, :, elem_D, 1, :] +
+            numpy.minimum(0, M) * a_U * variables_itf_k[:, :, elem_U, 0, :]
+        )
         
-
-        M_plus  =  0.25 * (M_D + 1.0)**2 * (1.0 + 16.0 * beta * 0.25 * (M_D - 1.0)**2)
-        M_minus = -0.25 * (M_U - 1.0)**2 * (1.0 + 16.0 * beta * 0.25 * (M_U + 1.0)**2)
-        M_half = M_plus + M_minus - K_p * (1.0 / fa_p) * numpy.maximum(1.0 - sigma * Mbar_sq, 0.0) * ((p_U - p_D) / denom)
-
-        # Mass flux
-        up_L     = (M_half > 0.0)
-        mdothalf = sqrtG_face * a_half * M_half * numpy.where(up_L, rho_D, rho_U)
-      
-
-
-        # ---------------- PRESSURE SPLITTING -------------------
-        M_inf_u = 1e-15
-        Mo_u_sq = numpy.minimum(1.0, numpy.maximum(Mbar_sq, M_inf_u**2))
-        Mo_u    = numpy.sqrt(Mo_u_sq)
-        fa_u    = 1e-10 #Mo_u * (2.0 - Mo_u)
-        alpha   = (3.0/16.0) * (-4.0 + 5.0 * fa_u * fa_u)
+        # Initialize one side with the advection flux
+        flux_x3_itf_k[:, :, elem_D, 1, :] = adv_flux
         
-        Pplus  =  0.25 * (M_D + 1.0)**2 * ((2.0 - M_D) + 16.0 * alpha * M_D * 0.25 * (M_D - 1.0)**2)
-        Pminus = -0.25 * (M_U - 1.0)**2 * ((-2.0 - M_U) + 16.0 * alpha * M_U * 0.25 * (M_U + 1.0)**2)
-        
-        P_half = (Pplus * p_D + Pminus * p_U
-             - K_u * Pplus * Pminus * (rho_D + rho_U) * a_half * fa_u * (w_U - w_D))
-        
-      
-        selector = mdothalf > 0
-      
+        # Add the pressure contribution
+        flux_x3_itf_k[idx_rho_u1, :, elem_D, 1, :] += h31_face * sqrtG_face * P
+        flux_x3_itf_k[idx_rho_u2, :, elem_D, 1, :] += h32_face * sqrtG_face * P
+        flux_x3_itf_k[idx_rho_w,  :, elem_D, 1, :] += h33_face * sqrtG_face * P
 
-        # ---------------- UPWINDED PRIMITIVES -----------------
-        u1_up    = numpy.where(selector, u1_D, u1_U)
-        u2_up    = numpy.where(selector, u2_D, u2_U)
-        w_up     = numpy.where(selector, w_D, w_U)
-        theta_up = numpy.where(selector, theta_D, theta_U)
+        # Mirroring
+        flux_x3_itf_k[:, :, elem_U, 0, :] = flux_x3_itf_k[:, :, elem_D, 1, :]
 
-        # rho flux
-        flux_rho = mdothalf
-        flux_x3_itf_k[idx_rho, :, elem_D, 1, :] = flux_rho
-        flux_x3_itf_k[idx_rho, :, elem_U, 0, :] = flux_rho
-
-        # rho*u1 flux: advective + pressure contribution
-        flux_rho_u1 = mdothalf * u1_up + sqrtG_face * h31_face * P_half
-        flux_x3_itf_k[idx_rho_u1, :, elem_D, 1, :] = flux_rho_u1
-        flux_x3_itf_k[idx_rho_u1, :, elem_U, 0, :] = flux_rho_u1
-
-        # rho*u2 flux
-        flux_rho_u2 = mdothalf * u2_up + sqrtG_face * h32_face * P_half
-        flux_x3_itf_k[idx_rho_u2, :, elem_D, 1, :] = flux_rho_u2
-        flux_x3_itf_k[idx_rho_u2, :, elem_U, 0, :] = flux_rho_u2
-        
-        # rho*w flux (total)
-        flux_rho_w = mdothalf * w_up + sqrtG_face * h33_face * P_half
-        flux_x3_itf_k[idx_rho_w, :, elem_D, 1, :] = flux_rho_w
-        flux_x3_itf_k[idx_rho_w, :, elem_U, 0, :] = flux_rho_w
-        
-        # rho*theta flux
-        flux_rho_theta = mdothalf * theta_up
-        flux_x3_itf_k[idx_rho_theta, :, elem_D, 1, :] = flux_rho_theta
-        flux_x3_itf_k[idx_rho_theta, :, elem_U, 0, :] = flux_rho_theta
-        
-        # ------------------------------------------------------
-        # 6) Separate rho-w into advective + pressure components
-        #    in the SAME layout as Rusanov code
-        # ------------------------------------------------------
-
-        # Advective part of rho*w flux:
-        wflux_adv_face = mdothalf * w_up
+        # ---  Rho-w Split for Vertical RHS ---
+        wflux_adv_face = adv_flux[idx_rho_w, :, :]
         wflux_adv_x3_itf_k[:, elem_D, 1, :] = wflux_adv_face
         wflux_adv_x3_itf_k[:, elem_U, 0, :] = wflux_adv_face
 
-        # Pressure part of rho*w flux: sqrtG * h33 * p_half
-        wflux_pres_face = sqrtG_face * h33_face * P_half
+        wflux_pres_face = h33_face * sqrtG_face * P
         wflux_pres_x3_itf_k[:, elem_D, 1, :] = wflux_pres_face / p_D
         wflux_pres_x3_itf_k[:, elem_U, 0, :] = wflux_pres_face / p_U
+        
+        
+def ausm_3d_hori(
+    variables_itf_i: numpy.ndarray,
+    pressure_itf_i: numpy.ndarray,
+    u1_itf_i: numpy.ndarray,
+    variables_itf_j: numpy.ndarray,
+    pressure_itf_j: numpy.ndarray,
+    u2_itf_j: numpy.ndarray,
+    metric,
+    flux_x1_itf_i: numpy.ndarray,
+    wflux_adv_x1_itf_i: numpy.ndarray,
+    wflux_pres_x1_itf_i: numpy.ndarray,
+    flux_x2_itf_j: numpy.ndarray,
+    wflux_adv_x2_itf_j: numpy.ndarray,
+    wflux_pres_x2_itf_j: numpy.ndarray,
+    nb_interfaces_hori: int
+):
+    for itf in range(nb_interfaces_hori):
+        elem_L = itf
+        elem_R = itf + 1
 
+        # ==========================================
+        # DIRECTION X1 (Zonal / Interface I)
+        # ==========================================
+        sqrtG_i = metric.sqrtG_itf_i[:, :, itf]
+        h11 = metric.H_contra_11_itf_i[:, :, itf]
+        h12 = metric.H_contra_12_itf_i[:, :, itf]
+        h13 = metric.H_contra_13_itf_i[:, :, itf]
+
+        rho_L_i = variables_itf_i[idx_rho, :, elem_L, 1, :]
+        rho_R_i = variables_itf_i[idx_rho, :, elem_R, 0, :]
+        u1_L = u1_itf_i[:, elem_L, 1, :]
+        u1_R = u1_itf_i[:, elem_R, 0, :]
+        p_L_i = pressure_itf_i[:, elem_L, 1, :]
+        p_R_i = pressure_itf_i[:, elem_R, 0, :]
+
+        # Sound speed (with horizontal metric scaling)
+        a_L_i = numpy.sqrt(h11 * heat_capacity_ratio * p_L_i / numpy.maximum(rho_L_i, 1e-12))
+        a_R_i = numpy.sqrt(h11 * heat_capacity_ratio * p_R_i / numpy.maximum(rho_R_i, 1e-12))
+        
+        M_L_i = u1_L / a_L_i
+        M_R_i = u1_R / a_R_i
+        
+        # Interface Mach and Pressure splitting
+        M_i = 0.25 * ((M_L_i + 1)**2 - (M_R_i - 1)**2)
+        P_i = 0.5 * (p_L_i * (1 + M_L_i) + p_R_i * (1 - M_R_i))
+
+        # Advection Flux X1
+        adv_flux_i = sqrtG_i * (
+            numpy.maximum(0, M_i) * a_L_i * variables_itf_i[:, :, elem_L, 1, :] +
+            numpy.minimum(0, M_i) * a_R_i * variables_itf_i[:, :, elem_R, 0, :]
+        )
+
+        flux_x1_itf_i[:, :, elem_L, 1, :] = adv_flux_i
+        common_Pi = sqrtG_i * P_i
+        flux_x1_itf_i[idx_rho_u1, :, elem_L, 1, :] += h11 * common_Pi
+        flux_x1_itf_i[idx_rho_u2, :, elem_L, 1, :] += h12 * common_Pi
+        flux_x1_itf_i[idx_rho_w,  :, elem_L, 1, :] += h13 * common_Pi
+        flux_x1_itf_i[:, :, elem_R, 0, :] = flux_x1_itf_i[:, :, elem_L, 1, :]
+
+        # Rho-w split X1
+        wflux_adv_x1_itf_i[:, elem_L, 1, :] = adv_flux_i[idx_rho_w]
+        wflux_adv_x1_itf_i[:, elem_R, 0, :] = adv_flux_i[idx_rho_w]
+        wflux_pres_i = h13 * common_Pi
+        wflux_pres_x1_itf_i[:, elem_L, 1, :] = wflux_pres_i / p_L_i
+        wflux_pres_x1_itf_i[:, elem_R, 0, :] = wflux_pres_i / p_R_i
+
+        # ==========================================
+        # DIRECTION X2 (Meridional / Interface J)
+        # ==========================================
+        sqrtG_j = metric.sqrtG_itf_j[:, itf, :]
+        h21 = metric.H_contra_21_itf_j[:, itf, :]
+        h22 = metric.H_contra_22_itf_j[:, itf, :]
+        h23 = metric.H_contra_23_itf_j[:, itf, :]
+
+        rho_L_j = variables_itf_j[idx_rho, :, elem_L, 1, :]
+        rho_R_j = variables_itf_j[idx_rho, :, elem_R, 0, :]
+        u2_L = u2_itf_j[:, elem_L, 1, :]
+        u2_R = u2_itf_j[:, elem_R, 0, :]
+        p_L_j = pressure_itf_j[:, elem_L, 1, :]
+        p_R_j = pressure_itf_j[:, elem_R, 0, :]
+
+        # Sound speed (with horizontal metric scaling)
+        a_L_j = numpy.sqrt(h22 * heat_capacity_ratio * p_L_j / numpy.maximum(rho_L_j, 1e-12))
+        a_R_j = numpy.sqrt(h22 * heat_capacity_ratio * p_R_j / numpy.maximum(rho_R_j, 1e-12))
+        
+        M_L_j = u2_L / a_L_j
+        M_R_j = u2_R / a_R_j
+        
+        M_j = 0.25 * ((M_L_j + 1)**2 - (M_R_j - 1)**2)
+        P_j = 0.5 * (p_L_j * (1 + M_L_j) + p_R_j * (1 - M_R_j))
+
+        # Advection Flux X2
+        adv_flux_j = sqrtG_j * (
+            numpy.maximum(0, M_j) * a_L_j * variables_itf_j[:, :, elem_L, 1, :] +
+            numpy.minimum(0, M_j) * a_R_j * variables_itf_j[:, :, elem_R, 0, :]
+        )
+
+        flux_x2_itf_j[:, :, elem_L, 1, :] = adv_flux_j
+        common_Pj = sqrtG_j * P_j
+        flux_x2_itf_j[idx_rho_u1, :, elem_L, 1, :] += h21 * common_Pj
+        flux_x2_itf_j[idx_rho_u2, :, elem_L, 1, :] += h22 * common_Pj
+        flux_x2_itf_j[idx_rho_w,  :, elem_L, 1, :] += h23 * common_Pj
+        flux_x2_itf_j[:, :, elem_R, 0, :] = flux_x2_itf_j[:, :, elem_L, 1, :]
+
+        # Rho-w split X2
+        wflux_adv_x2_itf_j[:, elem_L, 1, :] = adv_flux_j[idx_rho_w]
+        wflux_adv_x2_itf_j[:, elem_R, 0, :] = adv_flux_j[idx_rho_w]
+        wflux_pres_j = h23 * common_Pj
+        wflux_pres_x2_itf_j[:, elem_L, 1, :] = wflux_pres_j / p_L_j
+        wflux_pres_x2_itf_j[:, elem_R, 0, :] = wflux_pres_j / p_R_j
 
 
 
@@ -406,16 +416,6 @@ def rhs_euler (Q: numpy.ndarray, geom: CubedSphere, mtrx: DFROperators, metric: 
 
    # Common Rusanov vertical fluxes
    
-   #DEBUG
-   # variables_itf_k.fill(0.1)
-   # pressure_itf_k.fill(0.1)
-   # variables_itf_k[idx_rho_w].fill(0)
-   # w_itf_k.fill(0.1)
-   # metric.sqrtG_itf_k.fill(1)
-   # metric.H_contra_31_itf_k.fill(1)
-   # metric.H_contra_32_itf_k.fill(1)
-   # metric.H_contra_33_itf_k.fill(1)
-   
    # for itf in range(nb_interfaces_vert):
 
    #    elem_D = itf
@@ -482,62 +482,16 @@ def rhs_euler (Q: numpy.ndarray, geom: CubedSphere, mtrx: DFROperators, metric: 
    #       df3_dx3[:, epais, slab, :] = ( mtrx.diff_solpt @ flux_x3[:, epais, slab, :] + mtrx.correction @ flux_x3_itf_k[:, slab, elem+offset, :, :] ) #* 2.0 / geom.Δx3
 
 
-   
-   ausm_plus_up_3d_vert(
+   ausm_3d_vert(
     variables_itf_k,
     pressure_itf_k,
-    w_itf_k,
     metric,
     flux_x3_itf_k,
     wflux_adv_x3_itf_k,
     wflux_pres_x3_itf_k,
-    nb_interfaces_vert,
-    K_p=0.25,
-    K_u=0.75,
-    sigma=1.0,
-    beta=1.0/8.0,
+    nb_interfaces_vert
    )
-  
-   
-   # ==============================================================================
-   # DEBUG: Continuity Flux (idx_rho) at Vertical Interface
-   # ==============================================================================
-   # if ptopo.rank == 0:
-   #    itf_to_check = 2 
-   #    j_idx, i_idx = 2, 2
 
-   #    elem_D = itf_to_check
-   #    elem_U = itf_to_check + 1
-
-   #    # 1. Solution point values at the interface
-   #    rho_D = variables_itf_k[idx_rho, j_idx, elem_D, 1, i_idx]
-   #    rho_U = variables_itf_k[idx_rho, j_idx, elem_U, 0, i_idx]
-   #    w_D   = w_itf_k[j_idx, elem_D, 1, i_idx]
-   #    w_U   = w_itf_k[j_idx, elem_U, 0, i_idx]
-
-   #    # 2. Reconstruct the physical fluxes (Metric terms included)
-   #    sqrtG = metric.sqrtG_itf_k[itf_to_check, j_idx, i_idx]
-   #    phys_flux_D = sqrtG * w_D * rho_D
-   #    phys_flux_U = sqrtG * w_U * rho_U
-
-   #    # 3. The numerical flux resulting from the Riemann solver
-   #    numerical_flux = flux_x3_itf_k[idx_rho, j_idx, elem_D, 1, i_idx]
-
-   #    print(f"\n--- Vertical Interface Debug (itf={itf_to_check}) ---")
-   #    # print(f"State Down: rho={rho_D:12.6e}, w={w_D:12.6e}")
-   #    # print(f"State Up:   rho={rho_U:12.6e}, w={w_U:12.6e}")
-   #    # print(f"Physical Fluxes: Down={phys_flux_D:12.6e}, Up={phys_flux_U:12.6e}")
-   #    print(f"RESULTING RIEMANN FLUX: {numerical_flux:12.6e}")
-
-      # Check for unphysical behavior (Flux should usually be between the two physical fluxes 
-      # unless the dissipation term eig*(rho_U - rho_D) is very large)
-      # flux_min = min(phys_flux_D, phys_flux_U)
-      # flux_max = max(phys_flux_D, phys_flux_U)
-      # if not (flux_min <= numerical_flux <= flux_max):
-      #    print("WARNING: Numerical flux is outside the bounds of physical fluxes (Dissipation active).")
-      # print("------------------------------------------------------\n")
-      # ==============================================================================
-   
    
    # Finish transfers
    all_request.wait()
