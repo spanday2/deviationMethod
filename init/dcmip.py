@@ -748,6 +748,10 @@ def dcmip_gravity_wave(geom, metric, mtrx, param):
    t_mean = bigG * (1.0 - numpy.exp(N2 * geom.height / gravity)) + TS * numpy.exp(N2 * geom.height / gravity)
 
    theta_base = t_mean * (p0 / p)**kappa
+   
+   T0 = TS * (p0 / ps)**kappa * numpy.exp(N2 * geom.height / gravity)
+   numpy.save("T0.npy", T0)
+   breakpoint()
 
    #-----------------------------------------------------------------------
    #    rho (density), unperturbed using the background temperature t_mean
