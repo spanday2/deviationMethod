@@ -46,7 +46,8 @@ def ausm_3d_vert(
         
         # Interface Mach number
         M   = 0.25 * ((M_D + 1)**2 - (M_U - 1)**2)
-        P   = 0.5 * (p_D * (1 + M_D) + p_U * (1 - M_U))
+      #   P   = 0.5 * (p_D * (1 + M_D) + p_U * (1 - M_U)) # First-order pressure polynomial
+        P   = 0.25 * (p_D * (M_D + 1)**2 * (2 - M_D) + p_U * (M_U - 1)**2 * (2 + M_U)) # Second-order pressure polynomial
         
         # --- Advection Flux ---
         # Upwinding logic: M > 0 uses Down state (elem_D), M < 0 uses Up state (elem_U)
@@ -137,8 +138,9 @@ def ausm_3d_hori_poly_simple_pressure(
         M_minus = -0.25 * (M_R - 1.0)**2
         M_face  = M_plus + M_minus
 
-        # ---- First-order pressure polynomial (paper)
-        P_face = 0.5 * (p_L * (1.0 + M_L) + p_R * (1.0 - M_R))
+        # ---- Pressure polynomial
+      #   P_face = 0.5 * (p_L * (1.0 + M_L) + p_R * (1.0 - M_R)) # First-order pressure polynomial
+        P_face = 0.25 * (p_L * (M_L + 1)**2 * (2 - M_L) + p_R * (M_R - 1)**2 * (2 + M_R)) # Second-order pressure polynomial
 
         # Advective flux
         adv_flux_i = sqrtG_i * (
@@ -198,7 +200,8 @@ def ausm_3d_hori_poly_simple_pressure(
         M_minus = -0.25 * (M_R - 1.0)**2
         M_face  = M_plus + M_minus
 
-        P_face = 0.5 * (p_L * (1.0 + M_L) + p_R * (1.0 - M_R))
+      #   P_face = 0.5 * (p_L * (1.0 + M_L) + p_R * (1.0 - M_R))
+        P_face = 0.25 * (p_L * (M_L + 1)**2 * (2 - M_L) + p_R * (M_R - 1)**2 * (2 + M_R))
 
         adv_flux_j = sqrtG_j * (
             numpy.maximum(0.0, M_face) * a * variables_itf_j[:, :, elem_L, 1, :] +
