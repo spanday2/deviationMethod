@@ -18,6 +18,11 @@ def ausm_3d_vert(
     wflux_pres_x3_itf_k: numpy.ndarray,
     nb_interfaces_vert: int
 ):
+    beta = 0.125
+    K_p  = 0.25 
+    K_u  = 0.75
+    sigma = 1.0
+    
     for itf in range(nb_interfaces_vert):
         elem_D = itf       # Below interface
         elem_U = itf + 1   # Above interface
@@ -37,6 +42,12 @@ def ausm_3d_vert(
 
         a_D = numpy.sqrt(h33_face * heat_capacity_ratio * p_D / numpy.maximum(rho_D, 1e-12))
         a_U = numpy.sqrt(h33_face * heat_capacity_ratio * p_U / numpy.maximum(rho_U, 1e-12))
+        a_half = 0.5 * (a_D + a_U)
+        
+        M_bar_sq = (w_D**2 + w_U**2) / (2 * a_half**2)
+        M_bar = numpy.sqrt(M_bar_sq)
+        M_0_p = numpy.minimum(1, numpy.maximum(M_bar, 0.1)) # Higher cut-off Mach number for stability
+        fa_p = M_0_p * (2 - M_0_p) 
         
         M_D = w_D / a_D
         M_U = w_U / a_U
@@ -44,10 +55,24 @@ def ausm_3d_vert(
         M_D[numpy.isnan(M_D)] = 0.0
         M_U[numpy.isnan(M_U)] = 0.0
         
+        rho_half = 0.5 * (rho_D + rho_U)
+        
         # Interface Mach number
-        M   = 0.25 * ((M_D + 1)**2 - (M_U - 1)**2)
-      #   P   = 0.5 * (p_D * (1 + M_D) + p_U * (1 - M_U)) # First-order pressure polynomial
-        P   = 0.25 * (p_D * (M_D + 1)**2 * (2 - M_D) + p_U * (M_U - 1)**2 * (2 + M_U)) # Second-order pressure polynomial
+        M_D_plus = 0.25 * (M_D + 1)**2 * (1 + 4 * beta * (M_D - 1)**2)
+        M_U_minus = -0.25 * (M_U - 1)**2 * (1 + 4 * beta * (M_U + 1)**2)
+        Mp = -(K_p / fa_p) * numpy.maximum(1 - sigma * M_bar_sq, 0) * (p_U - p_D) / (rho_half * a_half**2) 
+        M = M_D_plus + M_U_minus + Mp
+        
+        M_0 = numpy.minimum(1, numpy.maximum(M_bar, 1e-13)) # Cut-off Mach number is 1e-13
+        fa = M_0 * (2 - M_0)
+        alpha = 0.1875 * (- 4 + 5 * fa**2) 
+        
+        # Interface pressure
+        P_D_plus = 0.25 * (M_D + 1)**2 * (2 - M_D + 4* alpha * M_D * (M_D - 1)**2) * p_D
+        P_U_minus = - 0.25 * (M_U - 1)**2 * (- 2 - M_U + 4 * alpha * M_U * (M_U + 1)**2) * p_U
+        Pw = - K_u * (P_D_plus / p_D) * (P_U_minus / p_U) * (rho_D + rho_U) * fa * a_half * (w_U - w_D)
+        P = P_D_plus + P_U_minus + Pw
+        
         
         # --- Advection Flux ---
         # Upwinding logic: M > 0 uses Down state (elem_D), M < 0 uses Up state (elem_U)
