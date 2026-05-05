@@ -235,50 +235,56 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
       θ  = t * (p0 / pressure)**(Rd/cpd)
       
    elif param.case_number == 651:
-      gamma = heat_capacity_ratio#5/3
-      Mmax = 0.4
-      T0 = 300.0
+      gamma = 1.4
+      Mmax = 1e-3   # or 1.0e-2 if you want Mach 0.01
+
       # Center the vortex
       xc, yc = 0.5, 0.5
       x = geom.X1 - xc
       y = geom.X3 - yc
+
       r = numpy.sqrt(x**2 + y**2)
       phi = numpy.arctan2(y, x)
 
-      # Parameters
+      # Density
       ρ = numpy.ones_like(r)
+
+      # Tangential velocity profile
       u_phi = numpy.zeros_like(r)
 
-      # Velocity profile
-      for i in range(r.shape[0]):
-         for j in range(r.shape[1]):
-            if r[i, j] < 0.2:
-                  u_phi[i, j] = 5 * r[i, j]
-            elif r[i, j] >= 0.2 and r[i, j] < 0.4:
-                  u_phi[i, j] = 2 - 5 * r[i, j]
-            else:
-                  u_phi[i, j] = 0
+      m1 = r < 0.2
+      m2 = (r >= 0.2) & (r < 0.4)
+      m3 = r >= 0.4
+
+      u_phi[m1] = 5.0 * r[m1]
+      u_phi[m2] = 2.0 - 5.0 * r[m2]
+      u_phi[m3] = 0.0
 
       # Cartesian velocities
       uu = -u_phi * numpy.sin(phi)
       ww =  u_phi * numpy.cos(phi)
 
-      # Pressure profile (equation 4.1.3)
-      p_base = ρ[0,0] * 1**2 / (gamma * Mmax**2) # Max u_phi = 1
-      
+      # Background pressure chosen so that maximum Mach number is Mmax
+      p_base = 1.0 / (gamma * Mmax**2) - 0.5
+
+      # Pressure profile
       p = numpy.zeros_like(r)
-      # Region 1: r <= 0.2
-      m1 = (r < 0.2)
-      p[m1] = p_base + 0.5 * 25 * r[m1]**2
-      # Region 2: 0.2 < r < 0.4
-      m2 = (r >= 0.2) & (r < 0.4)
-      p[m2] = (p_base + 0.5*25*r[m2]**2 + 4*(1 - 5*r[m2] - numpy.log(0.2) + numpy.log(r[m2])))
-      # Region 3: r >= 0.4
-      m3 = (r >= 0.4)
-      p[m3] = (p_base - 2 + 4 * numpy.log(2))
-      
-      # Potential temperature (θ)
-      θ  = p /(Rd*ρ)
+
+      p[m1] = p_base + 12.5 * r[m1]**2
+
+      p[m2] = (
+         p_base
+         + 4.0 * numpy.log(5.0 * r[m2])
+         + 4.0
+         - 20.0 * r[m2]
+         + 12.5 * r[m2]**2
+      )
+
+      p[m3] = p_base + 4.0 * numpy.log(2.0) - 2.0
+
+      # Temperature
+      θ = p / (Rd * ρ)
+         
 
 
 

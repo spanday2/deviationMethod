@@ -104,7 +104,7 @@ def ausm_plus_up_flux(
     K_p     = 0.25
     K_u     = 0.75
     beta    = 1.0 / 8.0
-    M_inf_u = 1e-3
+    M_inf_u = 1e-6
     M_inf_p = 1
 
     # Interface Mach numbers (using a_h)
@@ -167,6 +167,73 @@ def ausm_plus_up_flux(
     F[idx_theta] = mdothalf * theta_up       # advect rho*theta
 
     return F  
+ 
+def rusanov_flux(
+    U_L, U_R,                 # (neq, N) left/right conserved states
+    p_L, p_R,                 # (N,) pressures on L/R
+    gamma,                    # heat_capacity_ratio
+    *,
+    idx_rho, idx_u, idx_w, idx_theta,
+    normal="z"):
+    """
+    Vectorized Rusanov (local Lax-Friedrichs) interfacial flux.
+
+    Returns
+    -------
+    F : ndarray, shape (neq, N)
+        Numerical flux at the interface.
+    """
+    neq, N = U_L.shape
+    dtype = U_L.dtype
+
+    rho_L = U_L[idx_rho]
+    rho_R = U_R[idx_rho]
+
+    # Primitive velocities
+    u_L = U_L[idx_u] / rho_L
+    u_R = U_R[idx_u] / rho_R
+    w_L = U_L[idx_w] / rho_L
+    w_R = U_R[idx_w] / rho_R
+
+    # Select normal velocity and normal-momentum index
+    if normal == "z":
+        vL = w_L
+        vR = w_R
+        mom_n = idx_w
+    elif normal == "x":
+        vL = u_L
+        vR = u_R
+        mom_n = idx_u
+    else:
+        raise ValueError("normal must be 'z' or 'x'")
+
+    # Sound speed
+    a_L = numpy.sqrt(gamma * p_L / rho_L)
+    a_R = numpy.sqrt(gamma * p_R / rho_R)
+
+    # Physical flux from left state
+    F_L = numpy.zeros_like(U_L, dtype=dtype)
+    F_L[idx_rho]   = rho_L * vL
+    F_L[idx_u]     = rho_L * u_L * vL
+    F_L[idx_w]     = rho_L * w_L * vL
+    F_L[idx_theta] = U_L[idx_theta] * vL   # = (rho*theta) * v_n
+    F_L[mom_n]    += p_L
+
+    # Physical flux from right state
+    F_R = numpy.zeros_like(U_R, dtype=dtype)
+    F_R[idx_rho]   = rho_R * vR
+    F_R[idx_u]     = rho_R * u_R * vR
+    F_R[idx_w]     = rho_R * w_R * vR
+    F_R[idx_theta] = U_R[idx_theta] * vR
+    F_R[mom_n]    += p_R
+
+    # Rusanov dissipation speed
+    smax = numpy.maximum(numpy.abs(vL) + a_L, numpy.abs(vR) + a_R)
+
+    # Numerical flux
+    F = 0.5 * (F_L + F_R) - 0.5 * smax * (U_R - U_L)
+
+    return F.astype(dtype, copy=False)
 
 
 def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
@@ -194,8 +261,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
       rho      = Q[idx_2d_rho,:,:]
       uu       = Q[idx_2d_rho_u,:,:] / rho
       ww       = Q[idx_2d_rho_w,:,:] / rho
-      theta    = Q[idx_2d_rho_theta,:,:] / rho
-      # pressure = p0 * numpy.exp((cpd/cvd) * numpy.log((Rd/p0)*Q[idx_2d_rho_theta, :, :]))  
+      theta    = Q[idx_2d_rho_theta,:,:] / rho  
       pressure = rho * Rd * theta
        
       # --- Compute the fluxes
@@ -225,69 +291,8 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
          ifaces_var[:,elem,:,1] = Q[:,:,epais] @ mtrx.extrap_east
 
       # --- Interface pressure
-      # ifaces_pres = p0 * (ifaces_var[idx_2d_rho_theta] * Rd / p0)**(cpd / cvd)
-      # kfaces_pres = p0 * (kfaces_var[idx_2d_rho_theta] * Rd / p0)**(cpd / cvd)
       ifaces_pres = ifaces_var[idx_2d_rho_theta] * Rd
       kfaces_pres = kfaces_var[idx_2d_rho_theta] * Rd
-
-      # --- Bondary treatement
-
-      # # zeros flux BCs everywhere ...
-      # kfaces_flux[:,0,0,:]  = 0.0
-      # kfaces_flux[:,-1,1,:] = 0.0
-
-      # # Skip periodic faces
-      # if not geom.xperiodic:
-      #    ifaces_flux[:, 0,:,0] = 0.0
-      #    ifaces_flux[:,-1,:,1] = 0.0
-
-      # # except for momentum eqs where pressure is extrapolated to BCs.
-      # kfaces_flux[idx_2d_rho_w, 0, 0, :] = kfaces_pres[ 0, 0, :]
-      # kfaces_flux[idx_2d_rho_w,-1, 1, :] = kfaces_pres[-1, 1, :]
-
-      # ifaces_flux[idx_2d_rho_u, 0,:,0] = ifaces_pres[0,:,0]  # TODO : pour les cas théoriques seulement ...
-      # ifaces_flux[idx_2d_rho_u,-1,:,1] = ifaces_pres[-1,:,1]
-      
-      # # hydrostatic equilibrium
-      # T0      = 300.0                                      # temperature
-      # H       = Rd * T0 / gravity                          # scale height
-      # p_base  = p0 * numpy.exp(-1500 / H)
-      # ρ_base  = p_base / (Rd * T0)
-      # theta_base       = T0 * (p0 / p_base)**(Rd/cpd)
-      
-      
-      # UB_right_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the upper boundary
-
-      # UB_right_var[idx_2d_rho]          = ρ_base
-      # UB_right_var[idx_2d_rho_u]        = kfaces_var[idx_2d_rho_u,-1,1,:]
-      # UB_right_var[idx_2d_rho_w]        = -kfaces_var[idx_2d_rho_w,-1,1,:]
-      # UB_right_var[idx_2d_rho_theta]    = ρ_base * theta_base
-      
-      
-      # r = numpy.ones_like(nbsolpts*nb_elements_x)
-      
-      # flux = ausm_plus_up_flux(
-      #       kfaces_var[:,-1,1,:], UB_right_var, kfaces_pres[-1, 1, :], p_base*r,
-      #       gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
-      #       normal="z"
-      #    )
-      
-      # kfaces_flux[:,-1, 1, :] = flux
-      
-      # LB_left_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the lower boundary
-
-      # LB_left_var[idx_2d_rho]          = p0 / (Rd * T0)
-      # LB_left_var[idx_2d_rho_u]        = kfaces_var[idx_2d_rho_u,0,0,:]
-      # LB_left_var[idx_2d_rho_w]        = -kfaces_var[idx_2d_rho_w,0,0,:]
-      # LB_left_var[idx_2d_rho_theta]    = p0 / Rd
-      
-      # flux = ausm_plus_up_flux(
-      #       LB_left_var, kfaces_var[:,0,0,:], p0*r, kfaces_pres[ 0, 0, :],
-      #       gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
-      #       normal="z"
-      #    )
-      
-      # kfaces_flux[:, 0, 0, :] = flux
       
 
 
@@ -369,19 +374,8 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
       return rhs
    
-   # hydrostatic equilibrium
-   # Q_base = numpy.zeros_like(Q)
-   # T0      = 300.0                                      # temperature
-   # H       = Rd * T0 / gravity                          # scale height
-   # t = T0
-   # pressure = p0 * numpy.exp(-geom.X3 / H)
-   # Q_base[idx_2d_rho] = pressure / (Rd * t)
-   # Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / pressure)**(Rd/cpd)  
-
-   # Q_total = Q + Q_base
    
    t_rhs = rhs(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z)
-   # b_rhs = rhs(Q_base, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z)
 
    
    return t_rhs

@@ -185,37 +185,64 @@ def plot_array(array, filename=None):
    MPI.COMM_WORLD.Barrier()
 
 def image_field(geom: 'Cartesian2D', field: numpy.ndarray, filename: str, vmin: float, vmax: float, n: int, \
-                label: str = 'W', colormap: str = 'jet'):
+                label: str = 'W', colormap: str = 'plasma'):
    fig, ax = matplotlib.pyplot.subplots()
 
    if not geom.xperiodic:
       cmap = matplotlib.pyplot.contourf(geom.X1, geom.X3, field, cmap=colormap,
                                        levels=numpy.linspace(vmin,vmax,n), extend="both")
    else:
-      # X1 = numpy.append(geom.X1[:, -1:], geom.X1, axis=1)
-      # print(f'geom x1: \n{geom.X1[:, :2]}')
-      # print(f'x1: {X1[:, :3]}')
-      # raise ValueError
       X1 = numpy.append(numpy.append(geom.X1[:, -2:], geom.X1, axis=1), geom.X1[:, :2], axis=1)
       X1[:,  1] = 2*X1[:,  2] - X1[:,  3]
       X1[:,  0] = 2*X1[:,  1] - X1[:,  2]
       X1[:, -2] = 2*X1[:, -3] - X1[:, -4]
       X1[:, -1] = 2*X1[:, -2] - X1[:, -3]
+
       X3 = numpy.append(numpy.append(geom.X3[:, -2:], geom.X3, axis=1), geom.X3[:, :2], axis=1)
       X3[:,  1] = 2*X3[:,  2] - X3[:,  3]
       X3[:,  0] = 2*X3[:,  1] - X3[:,  2]
       X3[:, -2] = 2*X3[:, -3] - X3[:, -4]
       X3[:, -1] = 2*X3[:, -2] - X3[:, -3]
-      f  = numpy.append(numpy.append(field[:, -2:], field, axis=1), field[:, :2], axis=1)
-      cmap = matplotlib.pyplot.contourf(X1, X3, f, cmap=colormap,
-                                       levels=numpy.linspace(vmin,vmax,n), extend="both")
+
+      f = numpy.append(numpy.append(field[:, -2:], field, axis=1), field[:, :2], axis=1)
+
+      cmap = ax.contourf(
+         X1, X3, f,
+         cmap=colormap,
+         levels=numpy.linspace(vmin, vmax, n),
+         extend="both"
+      )
+
    ax.set_aspect('auto', 'box')
 
-   cbar = fig.colorbar(cmap, ax=ax, orientation='vertical', shrink=0.5)
-   cbar.set_label(label, )
+   # # Force displayed axes to [0,1]
+   ax.set_xlim(0.0, 1.0)
+   # ax.set_ylim(0.0, 1.0)
+   # ax.margins(0)
 
-   matplotlib.pyplot.savefig(filename)
-   matplotlib.pyplot.close(fig) 
+   # # Set ticks explicitly
+   # ticks = numpy.linspace(0.0, 1.0, 6)
+   # tick_labels = ["0", "0.2", "0.4", "0.6", "0.8", "1"]
+
+   # ax.set_xticks(ticks)
+   # ax.set_yticks(ticks)
+   # ax.set_xticklabels(tick_labels)
+   # ax.set_yticklabels(tick_labels)
+
+   ax.tick_params(axis="both", labelsize=14)
+
+   cbar = fig.colorbar(
+      cmap,
+      ax=ax,
+      orientation="vertical",
+      shrink=1.0,
+      pad=0.02,
+      ticks=[0, 0.2, 0.4, 0.6, 0.8, 1.0],
+   )
+   cbar.ax.tick_params(labelsize=12)
+
+   matplotlib.pyplot.savefig(filename, bbox_inches="tight")
+   matplotlib.pyplot.close(fig)
 
    return
 

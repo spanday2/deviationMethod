@@ -47,8 +47,8 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       # pressure = p0 * numpy.exp((cpd/cvd) * numpy.log((Rd/p0)*Q[idx_2d_rho_theta, :, :]))
       pressure = rho * Rd * theta
       c = numpy.sqrt(heat_capacity_ratio*pressure / rho)
-      M = (numpy.sqrt(u**2+w**2) / c)
-      image_field(geom, M, filename, M.min(), M.max(), 20)
+      M = numpy.abs(numpy.sqrt(u**2+w**2))#(numpy.sqrt(u**2+w**2) / c)
+      image_field(geom, M, filename, 0, 1, 50)
       
       
    elif param.case_number == 666:
