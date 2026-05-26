@@ -46,8 +46,8 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       H       = Rd * T0 / gravity                          # scale height
       t = T0
       pressure = p0 * numpy.exp(-geom.X3 / H)
-      # Q_base[idx_2d_rho] = pressure / (Rd * t)
-      # Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / pressure)**(Rd/cpd)  
+      Q_base[idx_2d_rho] = pressure / (Rd * t)
+      Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / pressure)**(Rd/cpd)  
 
       Q_total = Q + Q_base
 
@@ -64,7 +64,7 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       print("{:.5e}".format(M))
       array = numpy.array([f"{M:.16e}"])   
       #Open the file in append mode and write the new values
-      with open("LowerOrder_no_wb_withDist2.txt", "a") as file:
+      with open("new_test.txt", "a") as file:
          # Convert array to string and append to the file
          file.write(" ".join(map(str, array)) + "\n")
       # if step_id > 0:
