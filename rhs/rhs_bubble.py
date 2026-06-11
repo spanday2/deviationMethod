@@ -11,6 +11,7 @@ def ausm_plus_flux(
     *,
     idx_rho, idx_u, idx_w, idx_theta,
     normal="z",               # "z" for vertical faces (normal=w), "x" for horizontal (normal=u)
+    p_base_L=None, p_base_R=None,
     eps=1e-14):
     """
     Vectorized AUSM+ (simplified, matching your current formula).
@@ -64,7 +65,7 @@ def ausm_plus_up_flux(
     gamma,                    # heat_capacity_ratio
     *,
     idx_rho, idx_u, idx_w, idx_theta,
-    normal="z"):
+    normal="z", p_base_L=None, p_base_R=None):
    
     """
     AUSM+up interfacial flux for conserved state [rho, rho*u, rho*w, rho*theta].
@@ -103,8 +104,8 @@ def ausm_plus_up_flux(
     K_p     = 0.25
     K_u     = 0.75
     beta    = 1.0 / 8.0
-    M_inf_u = 1e-3
-    M_inf_p = 1
+    M_inf_u = 1e-2
+    M_inf_p = 0.1
 
     # Interface Mach numbers (using a_h)
     M_L = vL / a_half
@@ -124,7 +125,13 @@ def ausm_plus_up_flux(
     Mminus = -0.25 * (M_R - 1.0)**2 * (1.0 + 16.0 * beta * 0.25 * (M_R + 1.0)**2)
 
     rho_half  = 0.5 * (rho_L + rho_R)
-    M_half = Mplus + Mminus #- K_p * (1.0 / fa_p) * numpy.maximum(1.0 - sigma * Mbar_sq, 0.0) * ((p_R - p_L) / (rho_half * a_half_sq))
+    
+    if p_base_L is not None and p_base_R is not None:
+        dp_for_Kp = (p_R - p_L) - (p_base_R - p_base_L)
+    else:
+        dp_for_Kp = p_R - p_L
+    
+    M_half = Mplus + Mminus - K_p * (1.0 / fa_p) * numpy.maximum(1.0 - sigma * Mbar_sq, 0.0) * (dp_for_Kp / (rho_half * a_half_sq))
 
     # Mass flux
     up_L     = (M_half > 0.0)
@@ -140,8 +147,8 @@ def ausm_plus_up_flux(
     Pminus = -0.25 * (M_R - 1.0)**2 * ((-2.0 - M_R) + 16.0 * alpha * M_R * 0.25 * (M_R + 1.0)**2)
 
     Phalf = (Pplus * p_L
-             + Pminus * p_R)
-             #- K_u * Pplus * Pminus * (rho_L + rho_R) * a_half * fa_u * (vR - vL))
+             + Pminus * p_R
+             - K_u * Pplus * Pminus * (rho_L + rho_R) * a_half * fa_u * (vR - vL))
     
     selector = mdothalf > 0
     
@@ -173,7 +180,7 @@ def rusanov_flux(
     gamma,                    # heat_capacity_ratio
     *,
     idx_rho, idx_u, idx_w, idx_theta,
-    normal="z"):
+    normal="z", p_base_L=None, p_base_R=None):
     """
     Vectorized Rusanov (local Lax-Friedrichs) interfacial flux.
 
@@ -238,7 +245,7 @@ def rusanov_flux(
 
 def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
    
-   def rhs(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
+   def rhs(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z, base_pressure):
       datatype = Q.dtype
       nb_equations = Q.shape[0] # Number of constituent Euler equations.  Probably 6.
 
@@ -253,9 +260,11 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
       kfaces_flux = numpy.zeros((nb_equations, nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype)
       kfaces_var  = numpy.zeros((nb_equations, nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype)
+      kfaces_bp  = numpy.zeros((nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype)
 
       ifaces_flux = numpy.zeros((nb_equations, nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
       ifaces_var  = numpy.zeros((nb_equations, nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
+      ifaces_bp  = numpy.zeros((nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
 
       # --- Unpack physical variables
       rho      = Q[idx_2d_rho,:,:]
@@ -282,12 +291,16 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
          kfaces_var[:,elem,0,:] = mtrx.extrap_down @ Q[:,epais,:]
          kfaces_var[:,elem,1,:] = mtrx.extrap_up @ Q[:,epais,:]
+         kfaces_bp[elem,0,:] = mtrx.extrap_down @ base_pressure[epais, :]
+         kfaces_bp[elem,1,:] = mtrx.extrap_up @ base_pressure[epais, :]
 
       for elem in range(nb_elements_x):
          epais = elem * nbsolpts + standard_slice
 
          ifaces_var[:,elem,:,0] = Q[:,:,epais] @ mtrx.extrap_west
          ifaces_var[:,elem,:,1] = Q[:,:,epais] @ mtrx.extrap_east
+        #  ifaces_bp[elem,:,0] = base_pressure[:,epais] @ mtrx.extrap_west
+        #  ifaces_bp[elem,:,1] = base_pressure[:,epais] @ mtrx.extrap_east
 
       # --- Interface pressure
       ifaces_pres = p0 * (ifaces_var[idx_2d_rho_theta] * Rd / p0)**(cpd / cvd)
@@ -364,15 +377,17 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
          # Gather left/right slices (shape (neq, N))
          UL = kfaces_var[:, left,  1, :]
          UR = kfaces_var[:, right, 0, :]
+         bp_L = kfaces_bp[left,  1, :]
+         bp_R = kfaces_bp[right, 0, :]
 
          pL = kfaces_pres[left,  1, :]
          pR = kfaces_pres[right, 0, :]
 
-         flux = rusanov_flux(
+         flux = ausm_plus_up_flux(
             UL, UR, pL, pR,
             gamma=heat_capacity_ratio,
             idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
-            normal="z"
+            normal="z", p_base_L=bp_L, p_base_R=bp_R
          )
 
          kfaces_flux[:, right, 0, :] = flux
@@ -387,15 +402,17 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
          UL = ifaces_var[:, left,  :, 1]   # (neq, N)
          UR = ifaces_var[:, right, :, 0]
+         bp_L = ifaces_bp[left,  :, 1]
+         bp_R = ifaces_bp[right, :, 0]
 
          pL = ifaces_pres[left,  :, 1]     # (N,)
          pR = ifaces_pres[right, :, 0]
 
-         flux = rusanov_flux(
+         flux = ausm_plus_up_flux(
             UL, UR, pL, pR,
             gamma=heat_capacity_ratio,
             idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
-            normal="x"
+            normal="x",
          )
 
          ifaces_flux[:, right, :, 0] = flux
@@ -434,14 +451,15 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
    T0      = 300.0                                      # temperature
    H       = Rd * T0 / gravity                          # scale height
    t = T0
-   pressure = p0 * numpy.exp(-geom.X3 / H)
-   Q_base[idx_2d_rho] = pressure / (Rd * t)
-   Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / pressure)**(Rd/cpd)  
+   base_pressure = p0 * numpy.exp(-geom.X3 / H)
+   Q_base[idx_2d_rho] = base_pressure / (Rd * t)
+   Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / base_pressure)**(Rd/cpd)  
 
    Q_total = Q + Q_base
    
-   t_rhs = rhs(Q_total, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z)
-   b_rhs = rhs(Q_base, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z)
+   
+   t_rhs = rhs(Q_total, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z, base_pressure)
+   b_rhs = rhs(Q_base, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z, base_pressure)
 
    return t_rhs - b_rhs
 
