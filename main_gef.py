@@ -53,7 +53,7 @@ def main(argv) -> int:
 
    # Get handle to the appropriate RHS functions
    rhs = RhsBundle(geom, mtrx, metric, topo, ptopo, param, Q.shape)
-
+   
    # Time stepping
    stepper = create_time_integrator(param, rhs, preconditioner)
    stepper.output_manager = output

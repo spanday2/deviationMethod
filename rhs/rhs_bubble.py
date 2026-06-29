@@ -65,114 +65,191 @@ def ausm_plus_up_flux(
     gamma,                    # heat_capacity_ratio
     *,
     idx_rho, idx_u, idx_w, idx_theta,
-    normal="z", p_base_L=None, p_base_R=None):
-   
+    normal="z",
+    p_base_L=None,
+    p_base_R=None,
+    eps_scalar_diss=0.005,    # small scalar diffusion for rho and rho*theta
+):
     """
-    AUSM+up interfacial flux for conserved state [rho, rho*u, rho*w, rho*theta].
-    NO safety checks: raw divisions and square-roots.
-    Returns F with shape (neq, N).
+    AUSM+up interfacial flux for conserved state:
+        [rho, rho*u, rho*w, rho*theta]
+
+    Includes:
+      1. AUSM+up pressure and velocity diffusion.
+      2. Optional hydrostatic-background pressure removal in the K_p term.
+      3. Small Rusanov-like scalar diffusion only for rho and rho*theta.
+
+    eps_scalar_diss:
+      0.0   -> no extra scalar diffusion
+      0.001 -> very weak
+      0.005 -> recommended first test
+      0.01  -> stronger
     """
+
     neq, N = U_L.shape
-    dtype  = U_L.dtype
+    dtype = U_L.dtype
 
     rho_L = U_L[idx_rho]
     rho_R = U_R[idx_rho]
 
+    # ------------------------------------------------------------
+    # Normal and tangential velocities
+    # ------------------------------------------------------------
     if normal == "z":
         mom_n = idx_w
-        vL = U_L[idx_w] / rho_L 
-        vR = U_R[idx_w] / rho_R
-        uL = U_L[idx_u] / rho_L
+
+        vL = U_L[idx_w] / rho_L   # normal velocity w_L
+        vR = U_R[idx_w] / rho_R   # normal velocity w_R
+
+        uL = U_L[idx_u] / rho_L   # tangential velocity
         uR = U_R[idx_u] / rho_R
+
     elif normal == "x":
         mom_n = idx_u
-        vL = U_L[idx_u] / rho_L
-        vR = U_R[idx_u] / rho_R
-        wL = U_L[idx_w] / rho_L
+
+        vL = U_L[idx_u] / rho_L   # normal velocity u_L
+        vR = U_R[idx_u] / rho_R   # normal velocity u_R
+
+        wL = U_L[idx_w] / rho_L   # tangential velocity
         wR = U_R[idx_w] / rho_R
+
     else:
         raise ValueError("normal must be 'z' or 'x'")
 
-    # Sound speeds (no clipping)
-    a_L         = numpy.sqrt(gamma * p_L / rho_L)
-    a_R         = numpy.sqrt(gamma * p_R / rho_R)
-    a_half      = 0.5 * (a_L + a_R)
-    a_half_sq   = a_half * a_half
+    # ------------------------------------------------------------
+    # Sound speed
+    # ------------------------------------------------------------
+    a_L = numpy.sqrt(gamma * p_L / rho_L)
+    a_R = numpy.sqrt(gamma * p_R / rho_R)
 
+    a_half = 0.5 * (a_L + a_R)
+    a_half_sq = a_half * a_half
+
+    # ------------------------------------------------------------
     # AUSM+up constants
-    sigma   = 1.0
-    K_p     = 0.25
-    K_u     = 0.75
-    beta    = 1.0 / 8.0
-    M_inf_u = 1e-2
-    M_inf_p = 0.1
+    # ------------------------------------------------------------
+    sigma = 1.0
+    K_p = 0.25
+    K_u = 0.75
+    beta = 1.0 / 8.0
 
-    # Interface Mach numbers (using a_h)
+    M_inf_u = 1.0e-2
+    M_inf_p = 1.0
+
+    # ------------------------------------------------------------
+    # Mach numbers
+    # ------------------------------------------------------------
     M_L = vL / a_half
     M_R = vR / a_half
 
-    # Mbar^2
     Mbar_sq = (vL**2 + vR**2) / (2.0 * a_half_sq)
 
-    # fa for pressure term (Liou)
+    # ------------------------------------------------------------
+    # Pressure-diffusion scaling
+    # ------------------------------------------------------------
     Mo_p_sq = numpy.minimum(1.0, numpy.maximum(Mbar_sq, M_inf_p**2))
-    Mo_p    = numpy.sqrt(Mo_p_sq)
-    fa_p    = Mo_p * (2.0 - Mo_p)
-    
+    Mo_p = numpy.sqrt(Mo_p_sq)
+    fa_p = Mo_p * (2.0 - Mo_p)
 
-    # Convective Mach split polynomials
-    Mplus  =  0.25 * (M_L + 1.0)**2 * (1.0 + 16.0 * beta * 0.25 * (M_L - 1.0)**2)
-    Mminus = -0.25 * (M_R - 1.0)**2 * (1.0 + 16.0 * beta * 0.25 * (M_R + 1.0)**2)
+    # ------------------------------------------------------------
+    # Convective Mach split
+    # ------------------------------------------------------------
+    Mplus = (
+        0.25 * (M_L + 1.0)**2
+        * (1.0 + 16.0 * beta * 0.25 * (M_L - 1.0)**2)
+    )
 
-    rho_half  = 0.5 * (rho_L + rho_R)
-    
+    Mminus = (
+        -0.25 * (M_R - 1.0)**2
+        * (1.0 + 16.0 * beta * 0.25 * (M_R + 1.0)**2)
+    )
+
+    rho_half = 0.5 * (rho_L + rho_R)
+
+    # ------------------------------------------------------------
+    # Hydrostatic-background pressure removal for K_p term
+    # ------------------------------------------------------------
     if p_base_L is not None and p_base_R is not None:
         dp_for_Kp = (p_R - p_L) - (p_base_R - p_base_L)
     else:
         dp_for_Kp = p_R - p_L
-    
-    M_half = Mplus + Mminus - K_p * (1.0 / fa_p) * numpy.maximum(1.0 - sigma * Mbar_sq, 0.0) * (dp_for_Kp / (rho_half * a_half_sq))
 
+    M_half = (
+        Mplus + Mminus
+        - K_p * (1.0 / fa_p)
+        * numpy.maximum(1.0 - sigma * Mbar_sq, 0.0)
+        * (dp_for_Kp / (rho_half * a_half_sq))
+    )
+
+    # ------------------------------------------------------------
     # Mass flux
-    up_L     = (M_half > 0.0)
+    # ------------------------------------------------------------
+    up_L = M_half > 0.0
     mdothalf = a_half * M_half * numpy.where(up_L, rho_L, rho_R)
 
+    # ------------------------------------------------------------
     # Pressure flux split
+    # ------------------------------------------------------------
     Mo_u_sq = numpy.minimum(1.0, numpy.maximum(Mbar_sq, M_inf_u**2))
-    Mo_u    = numpy.sqrt(Mo_u_sq)
-    fa_u    = Mo_u * (2.0 - Mo_u)
-    alpha   = (3.0/16.0) * (-4.0 + 5.0 * fa_u * fa_u)
+    Mo_u = numpy.sqrt(Mo_u_sq)
+    fa_u = Mo_u * (2.0 - Mo_u)
 
-    Pplus  =  0.25 * (M_L + 1.0)**2 * ((2.0 - M_L) + 16.0 * alpha * M_L * 0.25 * (M_L - 1.0)**2)
-    Pminus = -0.25 * (M_R - 1.0)**2 * ((-2.0 - M_R) + 16.0 * alpha * M_R * 0.25 * (M_R + 1.0)**2)
+    alpha = (3.0 / 16.0) * (-4.0 + 5.0 * fa_u * fa_u)
 
-    Phalf = (Pplus * p_L
-             + Pminus * p_R
-             - K_u * Pplus * Pminus * (rho_L + rho_R) * a_half * fa_u * (vR - vL))
-    
-    selector = mdothalf > 0
-    
+    Pplus = (
+        0.25 * (M_L + 1.0)**2
+        * (
+            (2.0 - M_L)
+            + 16.0 * alpha * M_L * 0.25 * (M_L - 1.0)**2
+        )
+    )
+
+    Pminus = (
+        -0.25 * (M_R - 1.0)**2
+        * (
+            (-2.0 - M_R)
+            + 16.0 * alpha * M_R * 0.25 * (M_R + 1.0)**2
+        )
+    )
+
+    Phalf = (
+        Pplus * p_L
+        + Pminus * p_R
+        - K_u * Pplus * Pminus
+        * (rho_L + rho_R)
+        * a_half
+        * fa_u
+        * (vR - vL)
+    )
+
+    # ------------------------------------------------------------
+    # Upwind velocity and theta
+    # ------------------------------------------------------------
+    selector = mdothalf > 0.0
+
     if normal == "z":
-        u_up = numpy.where(selector, uL, uR)    # tangential
-        w_up = numpy.where(selector, vL, vR)    # normal
-    else:  # normal == "x"
-        w_up = numpy.where(selector, wL, wR)    # tangential
-        u_up = numpy.where(selector, vL, vR)    # normal
-        
-    # Upwinded theta
-    theta_L  = U_L[idx_theta] / rho_L
-    theta_R  = U_R[idx_theta] / rho_R
-    theta_up = numpy.where(selector, theta_L, theta_R) 
+        u_up = numpy.where(selector, uL, uR)
+        w_up = numpy.where(selector, vL, vR)
+    else:
+        w_up = numpy.where(selector, wL, wR)
+        u_up = numpy.where(selector, vL, vR)
 
-    # Build flux
+    theta_L = U_L[idx_theta] / rho_L
+    theta_R = U_R[idx_theta] / rho_R
+    theta_up = numpy.where(selector, theta_L, theta_R)
+
+    # ------------------------------------------------------------
+    # Build AUSM+up flux
+    # ------------------------------------------------------------
     F = numpy.zeros_like(U_L, dtype=dtype)
-    F[idx_rho]   = mdothalf
-    F[idx_u]     = mdothalf * u_up
-    F[idx_w]     = mdothalf * w_up
-    F[mom_n]    += Phalf                 # pressure only to normal momentum
-    F[idx_theta] = mdothalf * theta_up       # advect rho*theta
 
-    return F  
+    F[idx_rho] = mdothalf
+    F[idx_u] = mdothalf * u_up
+    F[idx_w] = mdothalf * w_up
+    F[mom_n] += Phalf
+    F[idx_theta] = mdothalf * theta_up
+
+    return F
  
 def rusanov_flux(
     U_L, U_R,                 # (neq, N) left/right conserved states
@@ -308,63 +385,63 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
       # --- Bondary treatement
 
-      # zeros flux BCs everywhere ...
-      kfaces_flux[:,0,0,:]  = 0.0
-      kfaces_flux[:,-1,1,:] = 0.0
+    #   # zeros flux BCs everywhere ...
+    #   kfaces_flux[:,0,0,:]  = 0.0
+    #   kfaces_flux[:,-1,1,:] = 0.0
       
 
-      # Skip periodic faces
-      if not geom.xperiodic:
-         ifaces_flux[:, 0,:,0] = 0.0
-         ifaces_flux[:,-1,:,1] = 0.0
+    #   # Skip periodic faces
+    #   if not geom.xperiodic:
+    #      ifaces_flux[:, 0,:,0] = 0.0
+    #      ifaces_flux[:,-1,:,1] = 0.0
 
-      # except for momentum eqs where pressure is extrapolated to BCs.
-      kfaces_flux[idx_2d_rho_w, 0, 0, :] = kfaces_pres[ 0, 0, :]
-      kfaces_flux[idx_2d_rho_w,-1, 1, :] = kfaces_pres[-1, 1, :]
+    #   # except for momentum eqs where pressure is extrapolated to BCs.
+    #   kfaces_flux[idx_2d_rho_w, 0, 0, :] = kfaces_pres[ 0, 0, :]
+    #   kfaces_flux[idx_2d_rho_w,-1, 1, :] = kfaces_pres[-1, 1, :]
 
-      ifaces_flux[idx_2d_rho_u, 0,:,0] = ifaces_pres[0,:,0]  # TODO : pour les cas théoriques seulement ...
-      ifaces_flux[idx_2d_rho_u,-1,:,1] = ifaces_pres[-1,:,1]
+    #   ifaces_flux[idx_2d_rho_u, 0,:,0] = ifaces_pres[0,:,0]  # TODO : pour les cas théoriques seulement ...
+    #   ifaces_flux[idx_2d_rho_u,-1,:,1] = ifaces_pres[-1,:,1]
       
-    #   # hydrostatic equilibrium
-    #   T0      = 300.0                                      # temperature
-    #   H       = Rd * T0 / gravity                          # scale height
-    #   p_base  = p0 * numpy.exp(-1500 / H)
-    #   ρ_base  = p_base / (Rd * T0)
-    #   theta_base       = T0 * (p0 / p_base)**(Rd/cpd)
+      # hydrostatic equilibrium
+      T0      = 300.0                                      # temperature
+      H       = Rd * T0 / gravity                          # scale height
+      p_base  = p0 * numpy.exp(-1500 / H)
+      ρ_base  = p_base / (Rd * T0)
+      theta_base       = T0 * (p0 / p_base)**(Rd/cpd)
       
       
-    #   UB_right_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the upper boundary
+      UB_right_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the upper boundary
 
-    #   UB_right_var[idx_2d_rho]          = ρ_base
-    #   UB_right_var[idx_2d_rho_u]        = 0 #kfaces_var[idx_2d_rho_u,-1,1,:]
-    #   UB_right_var[idx_2d_rho_w]        = 0 #-kfaces_var[idx_2d_rho_w,-1,1,:]
-    #   UB_right_var[idx_2d_rho_theta]    = ρ_base * theta_base
+      UB_right_var[idx_2d_rho]          = ρ_base
+      UB_right_var[idx_2d_rho_u]        = 0 #kfaces_var[idx_2d_rho_u,-1,1,:]
+      UB_right_var[idx_2d_rho_w]        = 0 #-kfaces_var[idx_2d_rho_w,-1,1,:]
+      UB_right_var[idx_2d_rho_theta]    = ρ_base * theta_base
       
       
-    #   r = numpy.ones_like(nbsolpts*nb_elements_x)
+      r = numpy.ones_like(nbsolpts*nb_elements_x)
       
-    #   flux = ausm_plus_up_flux(
-    #         kfaces_var[:,-1,1,:], UB_right_var, kfaces_pres[-1, 1, :], p_base*r,
-    #         gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
-    #         normal="z"
-    #      )
+      flux = ausm_plus_up_flux(
+            kfaces_var[:,-1,1,:], UB_right_var, kfaces_pres[-1, 1, :], p_base*r,
+            gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
+            normal="z"
+         )
       
-    #   kfaces_flux[:,-1, 1, :] = flux
+      kfaces_flux[:,-1, 1, :] = flux
       
-    #   LB_left_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the lower boundary
+      LB_left_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the lower boundary
 
-    #   LB_left_var[idx_2d_rho]          = p0 / (Rd * T0)
-    #   LB_left_var[idx_2d_rho_u]        = 0 #kfaces_var[idx_2d_rho_u,0,0,:]
-    #   LB_left_var[idx_2d_rho_w]        = 0 #-kfaces_var[idx_2d_rho_w,0,0,:]
-    #   LB_left_var[idx_2d_rho_theta]    = p0 / Rd
+      LB_left_var[idx_2d_rho]          = p0 / (Rd * T0)
+      LB_left_var[idx_2d_rho_u]        = 0 #kfaces_var[idx_2d_rho_u,0,0,:]
+      LB_left_var[idx_2d_rho_w]        = 0 #-kfaces_var[idx_2d_rho_w,0,0,:]
+      LB_left_var[idx_2d_rho_theta]    = p0 / Rd
       
-    #   flux = ausm_plus_up_flux(
-    #         LB_left_var, kfaces_var[:,0,0,:], p0*r, kfaces_pres[ 0, 0, :],
-    #         gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
-    #         normal="z"
-    #      )
+      flux = ausm_plus_up_flux(
+            LB_left_var, kfaces_var[:,0,0,:], p0*r, kfaces_pres[ 0, 0, :],
+            gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
+            normal="z"
+         )
       
-    #   kfaces_flux[:, 0, 0, :] = flux
+      kfaces_flux[:, 0, 0, :] = flux
       
 
 
@@ -389,6 +466,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
             idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
             normal="z", p_base_L=bp_L, p_base_R=bp_R
          )
+         
 
          kfaces_flux[:, right, 0, :] = flux
          kfaces_flux[:, left,  1, :] = flux  # mirror
@@ -412,9 +490,10 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
             UL, UR, pL, pR,
             gamma=heat_capacity_ratio,
             idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
-            normal="x",
+            normal="x", p_base_L=bp_L, p_base_R=bp_R
          )
-
+         
+ 
          ifaces_flux[:, right, :, 0] = flux
          ifaces_flux[:, left,  :, 1] = flux  # mirror
 
