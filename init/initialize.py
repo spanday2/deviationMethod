@@ -308,6 +308,24 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
       Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / pressure)**(Rd/cpd)  
       
       Q = Q - Q_base 
+      
+   if param.case_number == 2:
+      Q_base = numpy.zeros_like(Q)
+      theta_base = param.bubble_theta * numpy.ones_like(geom.X1)
+      uu_base = numpy.zeros_like(geom.X1)
+      ww_base = numpy.zeros_like(geom.X1)
+
+      # Same hydrostatic Exner relation as the original background
+      exner_base = 1.0 - gravity / (cpd * theta_base) * geom.X3
+
+      rho_base = p0 / (Rd * theta_base) * exner_base**(cvd / Rd)
+
+      Q_base[idx_2d_rho, :, :]       = rho_base
+      Q_base[idx_2d_rho_u, :, :]     = rho_base * uu_base
+      Q_base[idx_2d_rho_w, :, :]     = rho_base * ww_base
+      Q_base[idx_2d_rho_theta, :, :] = rho_base * theta_base
+
+      Q = Q - Q_base
 
 
    return Q

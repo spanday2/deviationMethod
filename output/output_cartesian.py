@@ -16,7 +16,6 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       image_field(geom, (Q[RHO_W,:,:]), filename, -1, 1, 25, label='w (m/s)', colormap='bwr')
 
    elif param.case_number <= 2:
-
       
       image_field(geom, (Q[RHO_THETA,:,:] / Q[RHO,:,:]), filename, 303.1, 303.7, 7)
 

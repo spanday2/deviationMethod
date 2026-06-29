@@ -185,37 +185,79 @@ def plot_array(array, filename=None):
    MPI.COMM_WORLD.Barrier()
 
 def image_field(geom: 'Cartesian2D', field: numpy.ndarray, filename: str, vmin: float, vmax: float, n: int, \
-                label: str = 'W', colormap: str = 'jet'):
-   fig, ax = matplotlib.pyplot.subplots()
+                label: str = r'$\theta$', colormap: str = 'Blues') -> None:
+
+   import numpy
+   import matplotlib
+   import matplotlib.pyplot
+
+   # modest, clean styling like your target image
+   matplotlib.rcParams.update({
+      "font.family": "serif",
+      "font.size": 10,
+      "axes.labelsize": 10,
+      "xtick.labelsize": 8,
+      "ytick.labelsize": 8,
+      "axes.linewidth": 0.8,
+      "xtick.direction": "out",
+      "ytick.direction": "out",
+      "xtick.major.size": 3,
+      "ytick.major.size": 3,
+      "savefig.dpi": 300,
+      "savefig.bbox": "tight",
+      "savefig.pad_inches": 0.03,
+   })
+
+   fig, ax = matplotlib.pyplot.subplots(figsize=(3.2, 4.2))
+
+   levels = numpy.linspace(vmin, vmax, n)
 
    if not geom.xperiodic:
-      cmap = matplotlib.pyplot.contourf(geom.X1, geom.X3, field, cmap=colormap,
-                                       levels=numpy.linspace(vmin,vmax,n), extend="both")
+      cmap = ax.contourf(
+         geom.X1, geom.X3, field,
+         cmap=colormap,
+         levels=levels,
+         extend="both"
+      )
    else:
-      # X1 = numpy.append(geom.X1[:, -1:], geom.X1, axis=1)
-      # print(f'geom x1: \n{geom.X1[:, :2]}')
-      # print(f'x1: {X1[:, :3]}')
-      # raise ValueError
       X1 = numpy.append(numpy.append(geom.X1[:, -2:], geom.X1, axis=1), geom.X1[:, :2], axis=1)
-      X1[:,  1] = 2*X1[:,  2] - X1[:,  3]
-      X1[:,  0] = 2*X1[:,  1] - X1[:,  2]
-      X1[:, -2] = 2*X1[:, -3] - X1[:, -4]
-      X1[:, -1] = 2*X1[:, -2] - X1[:, -3]
-      X3 = numpy.append(numpy.append(geom.X3[:, -2:], geom.X3, axis=1), geom.X3[:, :2], axis=1)
-      X3[:,  1] = 2*X3[:,  2] - X3[:,  3]
-      X3[:,  0] = 2*X3[:,  1] - X3[:,  2]
-      X3[:, -2] = 2*X3[:, -3] - X3[:, -4]
-      X3[:, -1] = 2*X3[:, -2] - X3[:, -3]
-      f  = numpy.append(numpy.append(field[:, -2:], field, axis=1), field[:, :2], axis=1)
-      cmap = matplotlib.pyplot.contourf(X1, X3, f, cmap=colormap,
-                                       levels=numpy.linspace(vmin,vmax,n), extend="both")
-   ax.set_aspect('auto', 'box')
+      X1[:,  1] = 2 * X1[:,  2] - X1[:,  3]
+      X1[:,  0] = 2 * X1[:,  1] - X1[:,  2]
+      X1[:, -2] = 2 * X1[:, -3] - X1[:, -4]
+      X1[:, -1] = 2 * X1[:, -2] - X1[:, -3]
 
-   cbar = fig.colorbar(cmap, ax=ax, orientation='vertical', shrink=0.5)
-   cbar.set_label(label, )
+      X3 = numpy.append(numpy.append(geom.X3[:, -2:], geom.X3, axis=1), geom.X3[:, :2], axis=1)
+      X3[:,  1] = 2 * X3[:,  2] - X3[:,  3]
+      X3[:,  0] = 2 * X3[:,  1] - X3[:,  2]
+      X3[:, -2] = 2 * X3[:, -3] - X3[:, -4]
+      X3[:, -1] = 2 * X3[:, -2] - X3[:, -3]
+
+      f = numpy.append(numpy.append(field[:, -2:], field, axis=1), field[:, :2], axis=1)
+
+      cmap = ax.contourf(
+         X1, X3, f,
+         cmap=colormap,
+         levels=levels,
+         extend="both"
+      )
+
+   ax.set_xlabel("Distance (m)")
+   ax.set_ylabel("Height (m)")
+
+   # THIS is what makes it look like your target image
+   ax.set_aspect('equal', adjustable='box')
+
+   cbar = fig.colorbar(
+      cmap,
+      ax=ax,
+      orientation='vertical',
+      shrink=0.5,
+      pad=0.06
+   )
+   cbar.set_label(label)
 
    matplotlib.pyplot.savefig(filename)
-   matplotlib.pyplot.close(fig) 
+   matplotlib.pyplot.close(fig)
 
    return
 
