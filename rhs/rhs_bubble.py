@@ -385,63 +385,63 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
       # --- Bondary treatement
 
-    #   # zeros flux BCs everywhere ...
-    #   kfaces_flux[:,0,0,:]  = 0.0
-    #   kfaces_flux[:,-1,1,:] = 0.0
+      # zeros flux BCs everywhere ...
+      kfaces_flux[:,0,0,:]  = 0.0
+      kfaces_flux[:,-1,1,:] = 0.0
       
 
-    #   # Skip periodic faces
-    #   if not geom.xperiodic:
-    #      ifaces_flux[:, 0,:,0] = 0.0
-    #      ifaces_flux[:,-1,:,1] = 0.0
+      # Skip periodic faces
+      if not geom.xperiodic:
+         ifaces_flux[:, 0,:,0] = 0.0
+         ifaces_flux[:,-1,:,1] = 0.0
 
-    #   # except for momentum eqs where pressure is extrapolated to BCs.
-    #   kfaces_flux[idx_2d_rho_w, 0, 0, :] = kfaces_pres[ 0, 0, :]
-    #   kfaces_flux[idx_2d_rho_w,-1, 1, :] = kfaces_pres[-1, 1, :]
+      # except for momentum eqs where pressure is extrapolated to BCs.
+      kfaces_flux[idx_2d_rho_w, 0, 0, :] = kfaces_pres[ 0, 0, :]
+      kfaces_flux[idx_2d_rho_w,-1, 1, :] = kfaces_pres[-1, 1, :]
 
-    #   ifaces_flux[idx_2d_rho_u, 0,:,0] = ifaces_pres[0,:,0]  # TODO : pour les cas théoriques seulement ...
-    #   ifaces_flux[idx_2d_rho_u,-1,:,1] = ifaces_pres[-1,:,1]
+      ifaces_flux[idx_2d_rho_u, 0,:,0] = ifaces_pres[0,:,0]  # TODO : pour les cas théoriques seulement ...
+      ifaces_flux[idx_2d_rho_u,-1,:,1] = ifaces_pres[-1,:,1]
       
-      # hydrostatic equilibrium
-      T0      = 300.0                                      # temperature
-      H       = Rd * T0 / gravity                          # scale height
-      p_base  = p0 * numpy.exp(-1500 / H)
-      ρ_base  = p_base / (Rd * T0)
-      theta_base       = T0 * (p0 / p_base)**(Rd/cpd)
+    #   # hydrostatic equilibrium
+    #   T0      = 300.0                                      # temperature
+    #   H       = Rd * T0 / gravity                          # scale height
+    #   p_base  = p0 * numpy.exp(-1500 / H)
+    #   ρ_base  = p_base / (Rd * T0)
+    #   theta_base       = T0 * (p0 / p_base)**(Rd/cpd)
       
       
-      UB_right_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the upper boundary
+    #   UB_right_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the upper boundary
 
-      UB_right_var[idx_2d_rho]          = ρ_base
-      UB_right_var[idx_2d_rho_u]        = 0 #kfaces_var[idx_2d_rho_u,-1,1,:]
-      UB_right_var[idx_2d_rho_w]        = 0 #-kfaces_var[idx_2d_rho_w,-1,1,:]
-      UB_right_var[idx_2d_rho_theta]    = ρ_base * theta_base
+    #   UB_right_var[idx_2d_rho]          = ρ_base
+    #   UB_right_var[idx_2d_rho_u]        = 0 #kfaces_var[idx_2d_rho_u,-1,1,:]
+    #   UB_right_var[idx_2d_rho_w]        = 0 #-kfaces_var[idx_2d_rho_w,-1,1,:]
+    #   UB_right_var[idx_2d_rho_theta]    = ρ_base * theta_base
       
       
-      r = numpy.ones_like(nbsolpts*nb_elements_x)
+    #   r = numpy.ones_like(nbsolpts*nb_elements_x)
       
-      flux = ausm_plus_up_flux(
-            kfaces_var[:,-1,1,:], UB_right_var, kfaces_pres[-1, 1, :], p_base*r,
-            gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
-            normal="z"
-         )
+    #   flux = ausm_plus_up_flux(
+    #         kfaces_var[:,-1,1,:], UB_right_var, kfaces_pres[-1, 1, :], p_base*r,
+    #         gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
+    #         normal="z"
+    #      )
       
-      kfaces_flux[:,-1, 1, :] = flux
+    #   kfaces_flux[:,-1, 1, :] = flux
       
-      LB_left_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the lower boundary
+    #   LB_left_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the lower boundary
 
-      LB_left_var[idx_2d_rho]          = p0 / (Rd * T0)
-      LB_left_var[idx_2d_rho_u]        = 0 #kfaces_var[idx_2d_rho_u,0,0,:]
-      LB_left_var[idx_2d_rho_w]        = 0 #-kfaces_var[idx_2d_rho_w,0,0,:]
-      LB_left_var[idx_2d_rho_theta]    = p0 / Rd
+    #   LB_left_var[idx_2d_rho]          = p0 / (Rd * T0)
+    #   LB_left_var[idx_2d_rho_u]        = 0 #kfaces_var[idx_2d_rho_u,0,0,:]
+    #   LB_left_var[idx_2d_rho_w]        = 0 #-kfaces_var[idx_2d_rho_w,0,0,:]
+    #   LB_left_var[idx_2d_rho_theta]    = p0 / Rd
       
-      flux = ausm_plus_up_flux(
-            LB_left_var, kfaces_var[:,0,0,:], p0*r, kfaces_pres[ 0, 0, :],
-            gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
-            normal="z"
-         )
+    #   flux = ausm_plus_up_flux(
+    #         LB_left_var, kfaces_var[:,0,0,:], p0*r, kfaces_pres[ 0, 0, :],
+    #         gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
+    #         normal="z"
+    #      )
       
-      kfaces_flux[:, 0, 0, :] = flux
+    #   kfaces_flux[:, 0, 0, :] = flux
       
 
 
@@ -460,7 +460,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
          pL = kfaces_pres[left,  1, :]
          pR = kfaces_pres[right, 0, :]
 
-         flux = ausm_plus_up_flux(
+         flux = rusanov_flux(
             UL, UR, pL, pR,
             gamma=heat_capacity_ratio,
             idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
@@ -486,7 +486,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
          pL = ifaces_pres[left,  :, 1]     # (N,)
          pR = ifaces_pres[right, :, 0]
 
-         flux = ausm_plus_up_flux(
+         flux = rusanov_flux(
             UL, UR, pL, pR,
             gamma=heat_capacity_ratio,
             idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
@@ -534,12 +534,12 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
    Q_base[idx_2d_rho] = base_pressure / (Rd * t)
    Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / base_pressure)**(Rd/cpd)  
 
-   Q_total = Q + Q_base
+   Q_total = Q #+ Q_base
    
    
    t_rhs = rhs(Q_total, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z, base_pressure)
-   b_rhs = rhs(Q_base, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z, base_pressure)
+   #b_rhs = rhs(Q_base, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z, base_pressure)
 
-   return t_rhs - b_rhs
+   return t_rhs #- b_rhs
 
       

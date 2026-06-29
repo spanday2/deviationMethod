@@ -203,12 +203,9 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
       z0 = 260
       r = numpy.sqrt( (geom.X1-x0)**2 + (geom.X3-z0)**2 )
 
-      temp  = numpy.ones_like(geom.X1)
-      temp *= param.bubble_theta
-
-      temp = numpy.where(r <= a,
-                      temp + A,
-                      temp + A * numpy.exp(-((r-a)/s)**2))
+      θ = numpy.where(r <= a,
+                      θ + A,
+                      θ + A * numpy.exp(-((r-a)/s)**2))
 
       # Enforce mirror symmetry
       if ni % 2 == 0:
@@ -217,13 +214,8 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
          middle_col = ni / 2 + 1
 
       for i in range(int(middle_col)):
-         temp[:, ni-i-1] = temp[:, i]
+         θ[:, ni-i-1] = θ[:, i]
 
-      exner = (1.0 - gravity / (cpd * temp) * geom.X3)
-      ρ = 100000 / (Rd * temp) * exner**(cvd / Rd)
-
-      # Here θ is energy
-      θ = cvd*temp*exner + gravity*geom.X3   # We did not add 0.5*(u^2+w^2) because its zero
       
    elif param.case_number == 666:
       # hydrostatic equilibrium
@@ -298,10 +290,8 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
    else:
       exner = (1.0 - gravity / (cpd * θ) * geom.X3)
 
-   # ρ = 100000 / (Rd * θ) * exner**(cvd / Rd)
-   
-   # ρ[5:10,5:10] += 1e-13
-
+   ρ = 100000 / (Rd * θ) * exner**(cvd / Rd)
+ 
 
    Q[idx_2d_rho,:,:]       = ρ
    Q[idx_2d_rho_u,:,:]     = ρ * uu
