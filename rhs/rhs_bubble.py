@@ -466,7 +466,6 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
             idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
             normal="z", p_base_L=bp_L, p_base_R=bp_R
          )
-         
 
          kfaces_flux[:, right, 0, :] = flux
          kfaces_flux[:, left,  1, :] = flux  # mirror
@@ -492,7 +491,6 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
             idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
             normal="x", p_base_L=bp_L, p_base_R=bp_R
          )
-         
  
          ifaces_flux[:, right, :, 0] = flux
          ifaces_flux[:, left,  :, 1] = flux  # mirror
@@ -525,21 +523,27 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
       return rhs
    
-   # hydrostatic equilibrium
+   # ------------------------------------------------------------
+   # Reference state for rising thermal bubble
+   # ------------------------------------------------------------
    Q_base = numpy.zeros_like(Q)
-   T0      = 300.0                                      # temperature
-   H       = Rd * T0 / gravity                          # scale height
-   t = T0
-   base_pressure = p0 * numpy.exp(-geom.X3 / H)
-   Q_base[idx_2d_rho] = base_pressure / (Rd * t)
-   Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / base_pressure)**(Rd/cpd)  
+   theta0 = 303.15
+   theta_base = theta0 * numpy.ones_like(geom.X3)
+   exner_base = 1.0 - gravity * geom.X3 / (cpd * theta0)
+   base_pressure = p0 * exner_base**(cpd / Rd)
+   rho_base = p0 / (Rd * theta_base) * exner_base**(cvd / Rd)
 
-   Q_total = Q #+ Q_base
+   Q_base[idx_2d_rho]       = rho_base
+   Q_base[idx_2d_rho_u]     = 0.0
+   Q_base[idx_2d_rho_w]     = 0.0
+   Q_base[idx_2d_rho_theta] = rho_base * theta_base
+
+   Q_total = Q + Q_base
    
    
    t_rhs = rhs(Q_total, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z, base_pressure)
-   #b_rhs = rhs(Q_base, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z, base_pressure)
+   b_rhs = rhs(Q_base, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z, base_pressure)
 
-   return t_rhs #- b_rhs
+   return t_rhs - b_rhs
 
       

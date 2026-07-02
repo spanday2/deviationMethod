@@ -16,8 +16,21 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
       image_field(geom, (Q[RHO_W,:,:]), filename, -1, 1, 25, label='w (m/s)', colormap='bwr')
 
    elif param.case_number <= 2:
+      Q_base = numpy.zeros_like(Q)
+      theta0 = 303.15
+      theta_base = theta0 * numpy.ones_like(geom.X3)
+      exner_base = 1.0 - gravity * geom.X3 / (cpd * theta0)
+      base_pressure = p0 * exner_base**(cpd / Rd)
+      rho_base = p0 / (Rd * theta_base) * exner_base**(cvd / Rd)
+
+      Q_base[idx_2d_rho]       = rho_base
+      Q_base[idx_2d_rho_u]     = 0.0
+      Q_base[idx_2d_rho_w]     = 0.0
+      Q_base[idx_2d_rho_theta] = rho_base * theta_base
+
+      Q_total = Q + Q_base
       
-      image_field(geom, (Q[RHO_THETA,:,:] / Q[RHO,:,:]), filename, 303.1, 303.7, 7)
+      image_field(geom, (Q_total[RHO_THETA,:,:] / Q_total[RHO,:,:]), filename, 303.1, 303.7, 7)
 
    elif param.case_number == 666:
       

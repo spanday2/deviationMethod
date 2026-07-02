@@ -326,6 +326,5 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
       Q_base[idx_2d_rho_theta, :, :] = rho_base * theta_base
 
       Q = Q - Q_base
-
-
+      
    return Q
