@@ -252,7 +252,8 @@ def image_field(geom: 'Cartesian2D', field: numpy.ndarray, filename: str, vmin: 
       ax=ax,
       orientation='vertical',
       shrink=0.5,
-      pad=0.06
+      pad=0.06,
+      format="%.1f"
    )
    cbar.set_label(label)
 

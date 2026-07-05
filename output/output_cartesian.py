@@ -30,7 +30,20 @@ def output_step(Q: numpy.ndarray, geom: Geometry, param: Configuration, filename
 
       Q_total = Q + Q_base
       
-      image_field(geom, (Q_total[RHO_THETA,:,:] / Q_total[RHO,:,:]), filename, 303.1, 303.7, 7)
+      # image_field(geom, (Q_total[RHO_THETA,:,:] / Q_total[RHO,:,:]), filename, 303.1, 303.7, 7)
+      theta_total = Q_total[RHO_THETA, :, :] / Q_total[RHO, :, :]
+      theta_pert = theta_total - 303.15
+
+      image_field(
+         geom,
+         theta_total,
+         filename,
+         303.1,
+         303.7,
+         7,
+         label=r"$\theta \;(\mathrm{K})$",
+         colormap='Blues',
+      )
 
    elif param.case_number == 666:
       
