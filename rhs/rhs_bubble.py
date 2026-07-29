@@ -321,225 +321,472 @@ def rusanov_flux(
 
 
 def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
-   
-   def rhs(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z, base_pressure):
-      datatype = Q.dtype
-      nb_equations = Q.shape[0] # Number of constituent Euler equations.  Probably 6.
+
+   # ============================================================
+   # Switches
+   # ============================================================
+   USE_WELL_BALANCED = True
+
+   FLUX_NAME = "rusanov"
+   # Options:
+   #    "rusanov"
+   #    "ausm_plus"
+   #    "ausm_plus_up"
+
+   # ============================================================
+   # Isothermal hydrostatic base state
+   # ============================================================
+   T0 = 300.0
+   H = Rd * T0 / gravity
+
+   def hydrostatic_base_at_z(z):
+      """
+      Isothermal hydrostatic atmosphere:
+          p(z) = p0 exp(-z/H)
+          rho(z) = p(z)/(Rd T0)
+          theta(z) = T0 (p0/p(z))^(Rd/cpd)
+      """
+      p_base = p0 * numpy.exp(-z / H)
+      rho_base = p_base / (Rd * T0)
+      theta_base = T0 * (p0 / p_base) ** (Rd / cpd)
+
+      return rho_base, p_base, theta_base
+
+   # ============================================================
+   # Build hydrostatic reference state at solution points
+   # ============================================================
+   Q_base = numpy.zeros_like(Q)
+
+   rho_base, base_pressure, theta_base = hydrostatic_base_at_z(geom.X3)
+
+   Q_base[idx_2d_rho, :, :]       = rho_base
+   Q_base[idx_2d_rho_u, :, :]     = 0.0
+   Q_base[idx_2d_rho_w, :, :]     = 0.0
+   Q_base[idx_2d_rho_theta, :, :] = rho_base * theta_base
+
+   # ============================================================
+   # Interpret input Q
+   # ============================================================
+   if USE_WELL_BALANCED:
+      # Q entering this RHS is the deviation state
+      Q_dev = Q
+      Q_total = Q_base + Q_dev
+   else:
+      # Q entering this RHS is the physical total state
+      Q_total = Q
+
+   # ============================================================
+   # Numerical flux selector
+   # ============================================================
+   def compute_num_flux(UL, UR, pL, pR, normal, bp_L=None, bp_R=None):
+
+      if FLUX_NAME == "rusanov":
+         return rusanov_flux(
+            UL, UR, pL, pR,
+            gamma=heat_capacity_ratio,
+            idx_rho=idx_2d_rho,
+            idx_u=idx_2d_rho_u,
+            idx_w=idx_2d_rho_w,
+            idx_theta=idx_2d_rho_theta,
+            normal=normal,
+            p_base_L=bp_L,
+            p_base_R=bp_R,
+         )
+
+      elif FLUX_NAME == "ausm_plus":
+         return ausm_plus_flux(
+            UL, UR, pL, pR,
+            gamma=heat_capacity_ratio,
+            idx_rho=idx_2d_rho,
+            idx_u=idx_2d_rho_u,
+            idx_w=idx_2d_rho_w,
+            idx_theta=idx_2d_rho_theta,
+            normal=normal,
+            p_base_L=bp_L,
+            p_base_R=bp_R,
+         )
+
+      elif FLUX_NAME == "ausm_plus_up":
+         return ausm_plus_up_flux(
+            UL, UR, pL, pR,
+            gamma=heat_capacity_ratio,
+            idx_rho=idx_2d_rho,
+            idx_u=idx_2d_rho_u,
+            idx_w=idx_2d_rho_w,
+            idx_theta=idx_2d_rho_theta,
+            normal=normal,
+            p_base_L=bp_L,
+            p_base_R=bp_R,
+         )
+
+      else:
+         raise ValueError("Unknown FLUX_NAME.")
+
+   # ============================================================
+   # Physical RHS
+   # ============================================================
+   def rhs_physical(Q_phys, use_wb_interface, pass_base_pressure_to_flux):
+
+      datatype = Q_phys.dtype
+      nb_equations = Q_phys.shape[0]
 
       nb_interfaces_x = nb_elements_x + 1
       nb_interfaces_z = nb_elements_z + 1
 
-      flux_x1 = numpy.zeros_like(Q, dtype=datatype)
-      flux_x3 = numpy.zeros_like(Q, dtype=datatype)
+      flux_x1 = numpy.zeros_like(Q_phys, dtype=datatype)
+      flux_x3 = numpy.zeros_like(Q_phys, dtype=datatype)
 
-      df1_dx1 = numpy.zeros_like(Q, dtype=datatype)
-      df3_dx3 = numpy.zeros_like(Q, dtype=datatype)
+      df1_dx1 = numpy.zeros_like(Q_phys, dtype=datatype)
+      df3_dx3 = numpy.zeros_like(Q_phys, dtype=datatype)
 
-      kfaces_flux = numpy.zeros((nb_equations, nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype)
-      kfaces_var  = numpy.zeros((nb_equations, nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype)
-      kfaces_bp  = numpy.zeros((nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype)
+      kfaces_flux = numpy.zeros(
+         (nb_equations, nb_elements_z, 2, nbsolpts * nb_elements_x),
+         dtype=datatype,
+      )
+      kfaces_var = numpy.zeros_like(kfaces_flux)
+      kfaces_dev = numpy.zeros_like(kfaces_flux)
+      kfaces_base = numpy.zeros_like(kfaces_flux)
 
-      ifaces_flux = numpy.zeros((nb_equations, nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
-      ifaces_var  = numpy.zeros((nb_equations, nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
-      ifaces_bp  = numpy.zeros((nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
+      kfaces_bp = numpy.zeros(
+         (nb_elements_z, 2, nbsolpts * nb_elements_x),
+         dtype=datatype,
+      )
 
-      # --- Unpack physical variables
-      rho      = Q[idx_2d_rho,:,:]
-      uu       = Q[idx_2d_rho_u,:,:] / rho
-      ww       = Q[idx_2d_rho_w,:,:] / rho
-      pressure = p0 * numpy.exp((cpd/cvd) * numpy.log((Rd/p0)*Q[idx_2d_rho_theta, :, :]))
+      ifaces_flux = numpy.zeros(
+         (nb_equations, nb_elements_x, nbsolpts * nb_elements_z, 2),
+         dtype=datatype,
+      )
+      ifaces_var = numpy.zeros_like(ifaces_flux)
+      ifaces_dev = numpy.zeros_like(ifaces_flux)
+      ifaces_base = numpy.zeros_like(ifaces_flux)
 
-      # --- Compute the fluxes
-      flux_x1[idx_2d_rho,:,:]       = Q[idx_2d_rho_u,:,:]
-      flux_x1[idx_2d_rho_u,:,:]     = Q[idx_2d_rho_u,:,:] * uu + pressure
-      flux_x1[idx_2d_rho_w,:,:]     = Q[idx_2d_rho_u,:,:] * ww
-      flux_x1[idx_2d_rho_theta,:,:] = Q[idx_2d_rho_theta,:,:] * uu
+      ifaces_bp = numpy.zeros(
+         (nb_elements_x, nbsolpts * nb_elements_z, 2),
+         dtype=datatype,
+      )
 
-      flux_x3[idx_2d_rho,:,:]       = Q[idx_2d_rho_w,:,:]
-      flux_x3[idx_2d_rho_u,:,:]     = Q[idx_2d_rho_w,:,:] * uu
-      flux_x3[idx_2d_rho_w,:,:]     = Q[idx_2d_rho_w,:,:] * ww + pressure
-      flux_x3[idx_2d_rho_theta,:,:] = Q[idx_2d_rho_theta,:,:] * ww
+      # ---------------------------------------------------------
+      # Primitive variables
+      # ---------------------------------------------------------
+      rho = Q_phys[idx_2d_rho, :, :]
 
+      if numpy.min(rho) <= 0.0:
+         raise ValueError("Non-positive density in rhs_physical.")
 
-      # --- Interpolate to the element interface
+      rho_theta = Q_phys[idx_2d_rho_theta, :, :]
+
+      if numpy.min(rho_theta) <= 0.0:
+         raise ValueError("Non-positive rho*theta in rhs_physical.")
+
+      uu = Q_phys[idx_2d_rho_u, :, :] / rho
+      ww = Q_phys[idx_2d_rho_w, :, :] / rho
+
+      pressure = p0 * (
+         (Rd / p0) * rho_theta
+      ) ** (cpd / cvd)
+
+      # ---------------------------------------------------------
+      # Physical fluxes at solution points
+      # ---------------------------------------------------------
+      flux_x1[idx_2d_rho, :, :]       = Q_phys[idx_2d_rho_u, :, :]
+      flux_x1[idx_2d_rho_u, :, :]     = Q_phys[idx_2d_rho_u, :, :] * uu + pressure
+      flux_x1[idx_2d_rho_w, :, :]     = Q_phys[idx_2d_rho_u, :, :] * ww
+      flux_x1[idx_2d_rho_theta, :, :] = Q_phys[idx_2d_rho_theta, :, :] * uu
+
+      flux_x3[idx_2d_rho, :, :]       = Q_phys[idx_2d_rho_w, :, :]
+      flux_x3[idx_2d_rho_u, :, :]     = Q_phys[idx_2d_rho_w, :, :] * uu
+      flux_x3[idx_2d_rho_w, :, :]     = Q_phys[idx_2d_rho_w, :, :] * ww + pressure
+      flux_x3[idx_2d_rho_theta, :, :] = Q_phys[idx_2d_rho_theta, :, :] * ww
+
+      # ---------------------------------------------------------
+      # Local deviation relative to isothermal hydrostatic base
+      # ---------------------------------------------------------
+      Q_local_dev = Q_phys - Q_base
+
       standard_slice = numpy.arange(nbsolpts)
+
+      # =========================================================
+      # z-direction interface reconstruction
+      # =========================================================
       for elem in range(nb_elements_z):
          epais = elem * nbsolpts + standard_slice
 
-         kfaces_var[:,elem,0,:] = mtrx.extrap_down @ Q[:,epais,:]
-         kfaces_var[:,elem,1,:] = mtrx.extrap_up @ Q[:,epais,:]
-         kfaces_bp[elem,0,:] = mtrx.extrap_down @ base_pressure[epais, :]
-         kfaces_bp[elem,1,:] = mtrx.extrap_up @ base_pressure[epais, :]
+         if use_wb_interface:
 
+            # Reconstruct deviation only
+            kfaces_dev[:, elem, 0, :] = (
+               mtrx.extrap_down @ Q_local_dev[:, epais, :]
+            )
+            kfaces_dev[:, elem, 1, :] = (
+               mtrx.extrap_up @ Q_local_dev[:, epais, :]
+            )
+
+            # Analytic isothermal base at vertical faces
+            z_down = geom.itf_Z[elem]
+            z_up = geom.itf_Z[elem + 1]
+
+            rho_down, p_down, theta_down = hydrostatic_base_at_z(z_down)
+            rho_up, p_up, theta_up = hydrostatic_base_at_z(z_up)
+
+            kfaces_base[idx_2d_rho, elem, 0, :]       = rho_down
+            kfaces_base[idx_2d_rho_u, elem, 0, :]     = 0.0
+            kfaces_base[idx_2d_rho_w, elem, 0, :]     = 0.0
+            kfaces_base[idx_2d_rho_theta, elem, 0, :] = rho_down * theta_down
+
+            kfaces_base[idx_2d_rho, elem, 1, :]       = rho_up
+            kfaces_base[idx_2d_rho_u, elem, 1, :]     = 0.0
+            kfaces_base[idx_2d_rho_w, elem, 1, :]     = 0.0
+            kfaces_base[idx_2d_rho_theta, elem, 1, :] = rho_up * theta_up
+
+            kfaces_var[:, elem, 0, :] = (
+               kfaces_base[:, elem, 0, :] + kfaces_dev[:, elem, 0, :]
+            )
+            kfaces_var[:, elem, 1, :] = (
+               kfaces_base[:, elem, 1, :] + kfaces_dev[:, elem, 1, :]
+            )
+
+            kfaces_bp[elem, 0, :] = p_down
+            kfaces_bp[elem, 1, :] = p_up
+
+         else:
+
+            # Non-WB: reconstruct physical state directly
+            kfaces_var[:, elem, 0, :] = (
+               mtrx.extrap_down @ Q_phys[:, epais, :]
+            )
+            kfaces_var[:, elem, 1, :] = (
+               mtrx.extrap_up @ Q_phys[:, epais, :]
+            )
+
+            kfaces_bp[elem, 0, :] = 0.0
+            kfaces_bp[elem, 1, :] = 0.0
+
+      # =========================================================
+      # x-direction interface reconstruction
+      # =========================================================
       for elem in range(nb_elements_x):
          epais = elem * nbsolpts + standard_slice
 
-         ifaces_var[:,elem,:,0] = Q[:,:,epais] @ mtrx.extrap_west
-         ifaces_var[:,elem,:,1] = Q[:,:,epais] @ mtrx.extrap_east
-        #  ifaces_bp[elem,:,0] = base_pressure[:,epais] @ mtrx.extrap_west
-        #  ifaces_bp[elem,:,1] = base_pressure[:,epais] @ mtrx.extrap_east
+         if use_wb_interface:
 
-      # --- Interface pressure
-      ifaces_pres = p0 * (ifaces_var[idx_2d_rho_theta] * Rd / p0)**(cpd / cvd)
-      kfaces_pres = p0 * (kfaces_var[idx_2d_rho_theta] * Rd / p0)**(cpd / cvd)
+            # Reconstruct deviation only
+            ifaces_dev[:, elem, :, 0] = (
+               Q_local_dev[:, :, epais] @ mtrx.extrap_west
+            )
+            ifaces_dev[:, elem, :, 1] = (
+               Q_local_dev[:, :, epais] @ mtrx.extrap_east
+            )
 
-      # --- Bondary treatement
+            # Base depends only on z, but use the z-coordinate at x-faces
+            z_west = geom.X3[:, epais] @ mtrx.extrap_west
+            z_east = geom.X3[:, epais] @ mtrx.extrap_east
 
-    #   # zeros flux BCs everywhere ...
-    #   kfaces_flux[:,0,0,:]  = 0.0
-    #   kfaces_flux[:,-1,1,:] = 0.0
-      
+            rho_west, p_west, theta_west = hydrostatic_base_at_z(z_west)
+            rho_east, p_east, theta_east = hydrostatic_base_at_z(z_east)
 
-    #   # Skip periodic faces
-    #   if not geom.xperiodic:
-    #      ifaces_flux[:, 0,:,0] = 0.0
-    #      ifaces_flux[:,-1,:,1] = 0.0
+            ifaces_base[idx_2d_rho, elem, :, 0]       = rho_west
+            ifaces_base[idx_2d_rho_u, elem, :, 0]     = 0.0
+            ifaces_base[idx_2d_rho_w, elem, :, 0]     = 0.0
+            ifaces_base[idx_2d_rho_theta, elem, :, 0] = rho_west * theta_west
 
-    #   # except for momentum eqs where pressure is extrapolated to BCs.
-    #   kfaces_flux[idx_2d_rho_w, 0, 0, :] = kfaces_pres[ 0, 0, :]
-    #   kfaces_flux[idx_2d_rho_w,-1, 1, :] = kfaces_pres[-1, 1, :]
+            ifaces_base[idx_2d_rho, elem, :, 1]       = rho_east
+            ifaces_base[idx_2d_rho_u, elem, :, 1]     = 0.0
+            ifaces_base[idx_2d_rho_w, elem, :, 1]     = 0.0
+            ifaces_base[idx_2d_rho_theta, elem, :, 1] = rho_east * theta_east
 
-    #   ifaces_flux[idx_2d_rho_u, 0,:,0] = ifaces_pres[0,:,0]  # TODO : pour les cas théoriques seulement ...
-    #   ifaces_flux[idx_2d_rho_u,-1,:,1] = ifaces_pres[-1,:,1]
-      
-      # hydrostatic equilibrium
-      T0      = 300.0                                      # temperature
-      H       = Rd * T0 / gravity                          # scale height
-      p_base  = p0 * numpy.exp(-1500 / H)
-      ρ_base  = p_base / (Rd * T0)
-      theta_base       = T0 * (p0 / p_base)**(Rd/cpd)
-      
-      
-      UB_right_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the upper boundary
+            ifaces_var[:, elem, :, 0] = (
+               ifaces_base[:, elem, :, 0] + ifaces_dev[:, elem, :, 0]
+            )
+            ifaces_var[:, elem, :, 1] = (
+               ifaces_base[:, elem, :, 1] + ifaces_dev[:, elem, :, 1]
+            )
 
-      UB_right_var[idx_2d_rho]          = ρ_base
-      UB_right_var[idx_2d_rho_u]        = 0 #kfaces_var[idx_2d_rho_u,-1,1,:]
-      UB_right_var[idx_2d_rho_w]        = 0 #-kfaces_var[idx_2d_rho_w,-1,1,:]
-      UB_right_var[idx_2d_rho_theta]    = ρ_base * theta_base
-      
-      
-      r = numpy.ones_like(nbsolpts*nb_elements_x)
-      
-      flux = ausm_plus_up_flux(
-            kfaces_var[:,-1,1,:], UB_right_var, kfaces_pres[-1, 1, :], p_base*r,
-            gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
-            normal="z"
-         )
-      
-      kfaces_flux[:,-1, 1, :] = flux
-      
-      LB_left_var       = numpy.zeros((nb_equations,nbsolpts*nb_elements_x)) # Free stream values at the lower boundary
+            ifaces_bp[elem, :, 0] = p_west
+            ifaces_bp[elem, :, 1] = p_east
 
-      LB_left_var[idx_2d_rho]          = p0 / (Rd * T0)
-      LB_left_var[idx_2d_rho_u]        = 0 #kfaces_var[idx_2d_rho_u,0,0,:]
-      LB_left_var[idx_2d_rho_w]        = 0 #-kfaces_var[idx_2d_rho_w,0,0,:]
-      LB_left_var[idx_2d_rho_theta]    = p0 / Rd
-      
-      flux = ausm_plus_up_flux(
-            LB_left_var, kfaces_var[:,0,0,:], p0*r, kfaces_pres[ 0, 0, :],
-            gamma=heat_capacity_ratio, idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
-            normal="z"
-         )
-      
-      kfaces_flux[:, 0, 0, :] = flux
-      
+         else:
 
+            ifaces_var[:, elem, :, 0] = (
+               Q_phys[:, :, epais] @ mtrx.extrap_west
+            )
+            ifaces_var[:, elem, :, 1] = (
+               Q_phys[:, :, epais] @ mtrx.extrap_east
+            )
 
-      # --- Common AUSM fluxes
+            ifaces_bp[elem, :, 0] = 0.0
+            ifaces_bp[elem, :, 1] = 0.0
+
+      # ---------------------------------------------------------
+      # Interface pressure from physical interface states
+      # ---------------------------------------------------------
+      ifaces_rho_theta = ifaces_var[idx_2d_rho_theta]
+      kfaces_rho_theta = kfaces_var[idx_2d_rho_theta]
+
+      if numpy.min(ifaces_rho_theta) <= 0.0:
+         raise ValueError("Non-positive rho*theta at x-interface.")
+
+      if numpy.min(kfaces_rho_theta) <= 0.0:
+         raise ValueError("Non-positive rho*theta at z-interface.")
+
+      ifaces_pres = p0 * (
+         ifaces_rho_theta * Rd / p0
+      ) ** (cpd / cvd)
+
+      kfaces_pres = p0 * (
+         kfaces_rho_theta * Rd / p0
+      ) ** (cpd / cvd)
+
+      # =========================================================
+      # Boundary treatment
+      # =========================================================
+      # Same style as the bubble RHS:
+      # zero normal mass flux, but pressure contribution kept
+      # in the normal momentum equation.
+      # =========================================================
+
+      kfaces_flux[:, 0, 0, :] = 0.0
+      kfaces_flux[:, -1, 1, :] = 0.0
+
+      if not geom.xperiodic:
+         ifaces_flux[:, 0, :, 0] = 0.0
+         ifaces_flux[:, -1, :, 1] = 0.0
+
+      # Vertical pressure contribution
+      kfaces_flux[idx_2d_rho_w, 0, 0, :] = kfaces_pres[0, 0, :]
+      kfaces_flux[idx_2d_rho_w, -1, 1, :] = kfaces_pres[-1, 1, :]
+
+      # Horizontal pressure contribution if non-periodic
+      if not geom.xperiodic:
+         ifaces_flux[idx_2d_rho_u, 0, :, 0] = ifaces_pres[0, :, 0]
+         ifaces_flux[idx_2d_rho_u, -1, :, 1] = ifaces_pres[-1, :, 1]
+
+      # =========================================================
+      # z-direction numerical fluxes
+      # =========================================================
       for itf in range(1, nb_interfaces_z - 1):
-
-         left  = itf - 1
+         left = itf - 1
          right = itf
 
-         # Gather left/right slices (shape (neq, N))
-         UL = kfaces_var[:, left,  1, :]
+         UL = kfaces_var[:, left, 1, :]
          UR = kfaces_var[:, right, 0, :]
-         bp_L = kfaces_bp[left,  1, :]
-         bp_R = kfaces_bp[right, 0, :]
 
-         pL = kfaces_pres[left,  1, :]
+         pL = kfaces_pres[left, 1, :]
          pR = kfaces_pres[right, 0, :]
 
-         flux = ausm_plus_up_flux(
-            UL, UR, pL, pR,
-            gamma=heat_capacity_ratio,
-            idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
-            normal="z", p_base_L=bp_L, p_base_R=bp_R
+         if pass_base_pressure_to_flux:
+            bp_L = kfaces_bp[left, 1, :]
+            bp_R = kfaces_bp[right, 0, :]
+         else:
+            bp_L = None
+            bp_R = None
+
+         flux = compute_num_flux(
+            UL,
+            UR,
+            pL,
+            pR,
+            normal="z",
+            bp_L=bp_L,
+            bp_R=bp_R,
          )
-         
 
          kfaces_flux[:, right, 0, :] = flux
-         kfaces_flux[:, left,  1, :] = flux  # mirror
+         kfaces_flux[:, left, 1, :] = flux
 
-
+      # =========================================================
+      # x-direction numerical fluxes
+      # =========================================================
       start = 0 if geom.xperiodic else 1
-      for itf in range(start, nb_interfaces_x - 1):
 
-         left  = itf - 1
+      for itf in range(start, nb_interfaces_x - 1):
+         left = itf - 1
          right = itf
 
-         UL = ifaces_var[:, left,  :, 1]   # (neq, N)
+         UL = ifaces_var[:, left, :, 1]
          UR = ifaces_var[:, right, :, 0]
-         bp_L = ifaces_bp[left,  :, 1]
-         bp_R = ifaces_bp[right, :, 0]
 
-         pL = ifaces_pres[left,  :, 1]     # (N,)
+         pL = ifaces_pres[left, :, 1]
          pR = ifaces_pres[right, :, 0]
 
-         flux = ausm_plus_up_flux(
-            UL, UR, pL, pR,
-            gamma=heat_capacity_ratio,
-            idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
-            normal="x", p_base_L=bp_L, p_base_R=bp_R
+         if pass_base_pressure_to_flux:
+            bp_L = ifaces_bp[left, :, 1]
+            bp_R = ifaces_bp[right, :, 0]
+         else:
+            bp_L = None
+            bp_R = None
+
+         flux = compute_num_flux(
+            UL,
+            UR,
+            pL,
+            pR,
+            normal="x",
+            bp_L=bp_L,
+            bp_R=bp_R,
          )
-         
- 
+
          ifaces_flux[:, right, :, 0] = flux
-         ifaces_flux[:, left,  :, 1] = flux  # mirror
+         ifaces_flux[:, left, :, 1] = flux
 
       if geom.xperiodic:
          ifaces_flux[:, 0, :, 0] = ifaces_flux[:, -1, :, 1]
 
-      # --- Compute the derivatives
+      # =========================================================
+      # Compute derivatives
+      # =========================================================
       for elem in range(nb_elements_z):
          epais = elem * nbsolpts + standard_slice
+
          factor = 2.0 / geom.Δx3
          if elem < geom.nb_elements_relief_layer:
             factor = 2.0 / geom.relief_layer_delta
 
-         df3_dx3[:, epais, :] = \
-            (mtrx.diff_solpt @ flux_x3[:, epais, :] + mtrx.correction @ kfaces_flux[:, elem, :, :]) * factor
+         df3_dx3[:, epais, :] = (
+            mtrx.diff_solpt @ flux_x3[:, epais, :]
+            + mtrx.correction @ kfaces_flux[:, elem, :, :]
+         ) * factor
 
       for elem in range(nb_elements_x):
-         epais = elem * nbsolpts + numpy.arange(nbsolpts)
+         epais = elem * nbsolpts + standard_slice
 
-         df1_dx1[:,:,epais] = (flux_x1[:,:,epais] @ mtrx.diff_solpt.T + ifaces_flux[:,elem,:,:] @ mtrx.correction.T) * \
-                              2.0/geom.Δx1
+         df1_dx1[:, :, epais] = (
+            flux_x1[:, :, epais] @ mtrx.diff_solpt.T
+            + ifaces_flux[:, elem, :, :] @ mtrx.correction.T
+         ) * 2.0 / geom.Δx1
 
-      # --- Assemble the right-hand sides
-      rhs = - ( df1_dx1 + df3_dx3 )
-     
+      # =========================================================
+      # Assemble RHS
+      # =========================================================
+      rhs_out = -(df1_dx1 + df3_dx3)
 
-      rhs[idx_2d_rho_w,:,:] -= Q[idx_2d_rho,:,:] * gravity
+      # Gravity source uses physical density
+      rhs_out[idx_2d_rho_w, :, :] -= Q_phys[idx_2d_rho, :, :] * gravity
 
+      return rhs_out
 
-      return rhs
-   
-   # hydrostatic equilibrium
-   Q_base = numpy.zeros_like(Q)
-   T0      = 300.0                                      # temperature
-   H       = Rd * T0 / gravity                          # scale height
-   t = T0
-   base_pressure = p0 * numpy.exp(-geom.X3 / H)
-   Q_base[idx_2d_rho] = base_pressure / (Rd * t)
-   Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / base_pressure)**(Rd/cpd)  
+   # ============================================================
+   # Return selected RHS
+   # ============================================================
+   if USE_WELL_BALANCED:
 
-   Q_total = Q + Q_base
-   
-   
-   t_rhs = rhs(Q_total, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z, base_pressure)
-   b_rhs = rhs(Q_base, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z, base_pressure)
+      t_rhs = rhs_physical(
+         Q_total,
+         use_wb_interface=True,
+         pass_base_pressure_to_flux=True,
+      )
 
-   return t_rhs - b_rhs
+      b_rhs = rhs_physical(
+         Q_base,
+         use_wb_interface=True,
+         pass_base_pressure_to_flux=True,
+      )
 
-      
+      return t_rhs - b_rhs
+
+   else:
+
+      return rhs_physical(
+         Q_total,
+         use_wb_interface=False,
+         pass_base_pressure_to_flux=False,
+      )

@@ -300,7 +300,6 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
 
    # ρ = 100000 / (Rd * θ) * exner**(cvd / Rd)
    
-   # ρ[5:10,5:10] += 1e-13
 
 
    Q[idx_2d_rho,:,:]       = ρ
