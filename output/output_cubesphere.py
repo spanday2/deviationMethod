@@ -289,5 +289,5 @@ def output_netcdf(Q, geom, metric, mtrx, topo, step, param):
 
 def output_finalize():
    """ Finalise the output netCDF4 file."""
-   if MPI.COMM_WORLD.Get_rank() == 0:
-      ncfile.close()
+   # if MPI.COMM_WORLD.Get_rank() == 0:
+   ncfile.close()
