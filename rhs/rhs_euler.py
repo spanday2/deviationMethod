@@ -35,105 +35,291 @@ def ausm_3d_vert(
     flux_x3_itf_k, wflux_adv_x3_itf_k, wflux_pres_x3_itf_k,
     nb_interfaces_vert
 ):
-    beta  = 0.125
-    K_p   = 0.25
-    K_u   = 0.75
-    sigma = 1.0
+    """
+    Basic AUSM flux in the vertical direction.
+
+    This version is intentionally close to the working shallow-water AUSM
+    implementation:
+
+        M_D = w_D / a_D
+        M_U = w_U / a_U
+
+        M = M_D^+ + M_U^-
+
+    and the advective flux uses the acoustic speed belonging to the
+    upwind state:
+
+        F_adv = sqrtG * [
+            max(M,0) * a_D * Q_D
+          + min(M,0) * a_U * Q_U
+        ]
+
+    No AUSM+up corrections:
+        Mp = 0
+        Pw = 0
+
+    Subsonic polynomial branch only.
+    """
 
     for itf in range(nb_interfaces_vert):
+
         elem_D = itf
         elem_U = itf + 1
 
+        # ============================================================
+        # Metric terms at this vertical interface
+        # ============================================================
+
         sqrtG_face = metric.sqrtG_itf_k[itf, :, :]
-        h31_face   = metric.H_contra_31_itf_k[itf, :, :]
-        h32_face   = metric.H_contra_32_itf_k[itf, :, :]
-        h33_face   = metric.H_contra_33_itf_k[itf, :, :]
 
-        rho_D = variables_itf_k[idx_rho, :, elem_D, 1, :]
-        rho_U = variables_itf_k[idx_rho, :, elem_U, 0, :]
-        w_D   = variables_itf_k[idx_rho_w, :, elem_D, 1, :] / rho_D
-        w_U   = variables_itf_k[idx_rho_w, :, elem_U, 0, :] / rho_U
-        p_D   = pressure_itf_k[:, elem_D, 1, :]
-        p_U   = pressure_itf_k[:, elem_U, 0, :]
+        h31_face = metric.H_contra_31_itf_k[itf, :, :]
+        h32_face = metric.H_contra_32_itf_k[itf, :, :]
+        h33_face = metric.H_contra_33_itf_k[itf, :, :]
 
-        # --- Step 1: Sound speeds (Appendix B: a³ = c*sqrt(h33)) ---
-        a_D    = numpy.sqrt(h33_face * heat_capacity_ratio * p_D / numpy.maximum(rho_D, 1e-12))
-        a_U    = numpy.sqrt(h33_face * heat_capacity_ratio * p_U / numpy.maximum(rho_U, 1e-12))
-        a_half = 0.5 * (a_D + a_U) 
+        # ============================================================
+        # Down / Up states
+        # ============================================================
 
-        # --- Step 2: Reference Mach number ---
-        M_bar_sq = (w_D**2 + w_U**2) / (2.0 * a_half**2)
-        M_bar    = numpy.sqrt(M_bar_sq)
-        
-        ###############################################################
-        # --- Step 3: fa function ---                              ####
-        M_0_p = numpy.minimum(1.0, numpy.maximum(M_bar, 0.1))      ####
-        fa_p  = M_0_p * (2.0 - M_0_p)                              ####
-        ###############################################################
+        rho_D = variables_itf_k[
+            idx_rho, :, elem_D, 1, :
+        ]
 
-        ###############################################################
-        # fa for alpha and Pw —                                    ####
-        M_0 = numpy.minimum(1.0, numpy.maximum(M_bar, 1e-13))      ####
-        fa  = M_0 * (2.0 - M_0)                                    ####
-        ###############################################################
-        
-        alpha = 0.1875 * (-4.0 + 5.0 * fa**2) 
+        rho_U = variables_itf_k[
+            idx_rho, :, elem_U, 0, :
+        ]
 
-        # --- Step 4: Interface Mach numbers using a_half ---
-        M_D = w_D / a_half
-        M_U = w_U / a_half
-        M_D[numpy.isnan(M_D)] = 0.0
-        M_U[numpy.isnan(M_U)] = 0.0
-
-        rho_half = 0.5 * (rho_D + rho_U)
-
-        # --- Step 5: AUSM+ split Mach polynomials ---
-        # Subsonic branch only (flow always subsonic)
-        M_D_plus  =  0.25 * (M_D + 1)**2 * (1 + 4*beta*(M_D - 1)**2)
-        M_U_minus = -0.25 * (M_U - 1)**2 * (1 + 4*beta*(M_U + 1)**2)
-
-        # --- Step 6: Mp pressure-diffusion Mach correction ---
-        Mp = -(K_p / fa_p) * numpy.maximum(1.0 - sigma * M_bar_sq, 0.0) \
-             * (p_U - p_D) / numpy.maximum(rho_half * a_half**2,1.0e-12)                     # <----------------------
-             
-
-        M = M_D_plus + M_U_minus + Mp
-
-        # --- Step 7: Pressure split polynomials  ---
-        P_D_plus_coeff  =  0.25 * (M_D + 1)**2 * (2 - M_D + 4*alpha*M_D*(M_D - 1)**2)
-        P_U_minus_coeff =  0.25 * (M_U - 1)**2 * (2 + M_U - 4*alpha*M_U*(M_U + 1)**2) 
-
-        P_D_plus  = P_D_plus_coeff  * p_D
-        P_U_minus = P_U_minus_coeff * p_U  
-
-        # --- Step 8: Pw velocity-diffusion pressure correction ---
-        Pw = -K_u * P_D_plus_coeff * P_U_minus_coeff \
-             * (rho_D + rho_U) * fa * a_half * (w_U - w_D)       # <----------------------
-
-        # Total interface pressure
-        P = P_D_plus + P_U_minus + Pw
-
-        # --- Step 9: Advection flux ---
-        adv_flux = sqrtG_face * a_half * (
-            numpy.maximum(0.0, M) * variables_itf_k[:, :, elem_D, 1, :] +
-            numpy.minimum(0.0, M) * variables_itf_k[:, :, elem_U, 0, :]
+        w_D = (
+            variables_itf_k[
+                idx_rho_w, :, elem_D, 1, :
+            ]
+            / numpy.maximum(rho_D, 1.0e-12)
         )
 
-        # --- Step 10: Assemble flux ---
-        flux_x3_itf_k[:, :, elem_D, 1, :] = adv_flux
-        flux_x3_itf_k[idx_rho_u1, :, elem_D, 1, :] += h31_face * sqrtG_face * P
-        flux_x3_itf_k[idx_rho_u2, :, elem_D, 1, :] += h32_face * sqrtG_face * P
-        flux_x3_itf_k[idx_rho_w,  :, elem_D, 1, :] += h33_face * sqrtG_face * P
-        flux_x3_itf_k[:, :, elem_U, 0, :] = flux_x3_itf_k[:, :, elem_D, 1, :]
+        w_U = (
+            variables_itf_k[
+                idx_rho_w, :, elem_U, 0, :
+            ]
+            / numpy.maximum(rho_U, 1.0e-12)
+        )
 
-        # --- Step 11: rho-w split ---
-        wflux_adv_face = adv_flux[idx_rho_w, :, :]
-        wflux_adv_x3_itf_k[:, elem_D, 1, :] = wflux_adv_face
-        wflux_adv_x3_itf_k[:, elem_U, 0, :] = wflux_adv_face
+        p_D = pressure_itf_k[
+            :, elem_D, 1, :
+        ]
 
-        wflux_pres_face = h33_face * sqrtG_face * P
-        wflux_pres_x3_itf_k[:, elem_D, 1, :] = wflux_pres_face / p_D
-        wflux_pres_x3_itf_k[:, elem_U, 0, :] = wflux_pres_face / p_U       
+        p_U = pressure_itf_k[
+            :, elem_U, 0, :
+        ]
+
+        # ============================================================
+        # Directional acoustic speeds
+        #
+        # Analogous to the working shallow-water AUSM:
+        #
+        #   a = sqrt(metric * physical wave speed^2)
+        #
+        # Euler:
+        #
+        #   c^2 = gamma * p / rho
+        #
+        # therefore
+        #
+        #   a^3 = sqrt(h33 * gamma*p/rho)
+        # ============================================================
+
+        a_D = numpy.sqrt(
+            h33_face
+            * heat_capacity_ratio
+            * p_D
+            / numpy.maximum(rho_D, 1.0e-12)
+        )
+
+        a_U = numpy.sqrt(
+            h33_face
+            * heat_capacity_ratio
+            * p_U
+            / numpy.maximum(rho_U, 1.0e-12)
+        )
+
+        # ============================================================
+        # Local Mach numbers
+        #
+        # IMPORTANT:
+        # Each state uses its own acoustic speed.
+        # ============================================================
+
+        M_D = w_D / numpy.maximum(a_D, 1.0e-14)
+        M_U = w_U / numpy.maximum(a_U, 1.0e-14)
+
+        M_D = numpy.nan_to_num(
+            M_D,
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0
+        )
+
+        M_U = numpy.nan_to_num(
+            M_U,
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0
+        )
+
+        # ============================================================
+        # Basic AUSM Mach splitting
+        #
+        # Same simple subsonic form as the shallow-water implementation:
+        #
+        #   M_D+ =  1/4 (M_D + 1)^2
+        #   M_U- = -1/4 (M_U - 1)^2
+        #
+        # ============================================================
+
+        M_D_plus = (
+            0.25
+            * (M_D + 1.0)**2
+        )
+
+        M_U_minus = (
+            -0.25
+            * (M_U - 1.0)**2
+        )
+
+        M = M_D_plus + M_U_minus
+
+        # ============================================================
+        # Basic AUSM pressure splitting
+        #
+        # Subsonic pressure polynomials:
+        #
+        # P+(M) = 1/4 (M+1)^2 (2-M)
+        # P-(M) = 1/4 (M-1)^2 (2+M)
+        #
+        # No Pw correction.
+        # ============================================================
+
+        P_D_plus_coeff = (
+            0.25
+            * (M_D + 1.0)**2
+            * (2.0 - M_D)
+        )
+
+        P_U_minus_coeff = (
+            0.25
+            * (M_U - 1.0)**2
+            * (2.0 + M_U)
+        )
+
+        P_D_plus = P_D_plus_coeff * p_D
+        P_U_minus = P_U_minus_coeff * p_U
+
+        P = P_D_plus + P_U_minus
+
+        # ============================================================
+        # AUSM advective flux
+        #
+        # IMPORTANT difference from old implementation:
+        #
+        # OLD:
+        #     a_half * [ M+ Q_D + M- Q_U ]
+        #
+        # NEW:
+        #     M+ a_D Q_D + M- a_U Q_U
+        #
+        # This follows the structure of your working shallow-water code.
+        # ============================================================
+
+        adv_flux = sqrtG_face * (
+            numpy.maximum(0.0, M)
+            * a_D
+            * variables_itf_k[
+                :, :, elem_D, 1, :
+            ]
+            +
+            numpy.minimum(0.0, M)
+            * a_U
+            * variables_itf_k[
+                :, :, elem_U, 0, :
+            ]
+        )
+
+        # ============================================================
+        # Assemble complete vertical Euler flux
+        # ============================================================
+
+        flux_x3_itf_k[
+            :, :, elem_D, 1, :
+        ] = adv_flux
+
+        flux_x3_itf_k[
+            idx_rho_u1, :, elem_D, 1, :
+        ] += (
+            h31_face
+            * sqrtG_face
+            * P
+        )
+
+        flux_x3_itf_k[
+            idx_rho_u2, :, elem_D, 1, :
+        ] += (
+            h32_face
+            * sqrtG_face
+            * P
+        )
+
+        flux_x3_itf_k[
+            idx_rho_w, :, elem_D, 1, :
+        ] += (
+            h33_face
+            * sqrtG_face
+            * P
+        )
+
+        # Same numerical flux must be seen by both elements
+        flux_x3_itf_k[
+            :, :, elem_U, 0, :
+        ] = flux_x3_itf_k[
+            :, :, elem_D, 1, :
+        ]
+
+        # ============================================================
+        # Separate rho-w advective part
+        # ============================================================
+
+        wflux_adv_face = adv_flux[
+            idx_rho_w, :, :
+        ]
+
+        wflux_adv_x3_itf_k[
+            :, elem_D, 1, :
+        ] = wflux_adv_face
+
+        wflux_adv_x3_itf_k[
+            :, elem_U, 0, :
+        ] = wflux_adv_face
+
+        # ============================================================
+        # Separate rho-w pressure contribution
+        # ============================================================
+
+        wflux_pres_face = (
+            h33_face
+            * sqrtG_face
+            * P
+        )
+
+        wflux_pres_x3_itf_k[
+            :, elem_D, 1, :
+        ] = (
+            wflux_pres_face
+            / numpy.maximum(p_D, 1.0e-12)
+        )
+
+        wflux_pres_x3_itf_k[
+            :, elem_U, 0, :
+        ] = (
+            wflux_pres_face
+            / numpy.maximum(p_U, 1.0e-12)
+        )     
 
 
 def ausm_3d_hori_ausmplusup(
@@ -145,177 +331,514 @@ def ausm_3d_hori_ausmplusup(
     nb_interfaces_hori, idx_rho, idx_rho_u1, idx_rho_u2, idx_rho_w,
     heat_capacity_ratio
 ):
-    beta  = 0.125
-    K_u   = 0.75
-    K_p   = 0.25
-    sigma = 1.0
+    """
+    Basic AUSM horizontal flux.
+
+    Deliberately follows the structure of the working shallow-water
+    AUSM implementation.
+
+    Main characteristics:
+      * separate a_L and a_R
+      * M_L = u_L/a_L
+      * M_R = u_R/a_R
+      * simple AUSM Mach splitting
+      * left advection uses a_L
+      * right advection uses a_R
+      * basic AUSM pressure splitting
+      * Mp = 0
+      * Pw = 0
+
+    Subsonic polynomial branch only.
+    """
 
     for itf in range(nb_interfaces_hori):
+
         elem_L = itf
         elem_R = itf + 1
 
-        # =====================================================
-        # X1 direction
-        # =====================================================
-        sqrtG_i = metric.sqrtG_itf_i[:, :, itf]
-        h11 = metric.H_contra_11_itf_i[:, :, itf]
-        h12 = metric.H_contra_12_itf_i[:, :, itf]
-        h13 = metric.H_contra_13_itf_i[:, :, itf]
+        # ============================================================
+        # X1 DIRECTION
+        # ============================================================
 
-        rho_L = variables_itf_i[idx_rho, :, elem_L, 1, :]
-        rho_R = variables_itf_i[idx_rho, :, elem_R, 0, :]
-        p_L   = pressure_itf_i[:, elem_L, 1, :]
-        p_R   = pressure_itf_i[:, elem_R, 0, :]
-        u_L   = u1_itf_i[:, elem_L, 1, :]
-        u_R   = u1_itf_i[:, elem_R, 0, :]
+        sqrtG_i = metric.sqrtG_itf_i[
+            :, :, itf
+        ]
 
-        a_L    = numpy.sqrt(h11 * heat_capacity_ratio * p_L / numpy.maximum(rho_L, 1e-12))
-        a_R    = numpy.sqrt(h11 * heat_capacity_ratio * p_R / numpy.maximum(rho_R, 1e-12))
-        a_half = 0.5 * (a_L + a_R)
+        h11 = metric.H_contra_11_itf_i[
+            :, :, itf
+        ]
 
-        M_bar_sq = (u_L**2 + u_R**2) / (2.0 * a_half**2)
-        M_bar    = numpy.sqrt(M_bar_sq)
-        
-        ################################################################
-        M_0_p = numpy.minimum(1.0, numpy.maximum(M_bar, 0.1))       ####
-        fa_p = M_0_p * (2.0 - M_0_p)                                ####
-        ################################################################
+        h12 = metric.H_contra_12_itf_i[
+            :, :, itf
+        ]
 
-        ################################################################
-        M_0 = numpy.minimum(1.0, numpy.maximum(M_bar, 1e-13))       ####
-        fa  = M_0 * (2.0 - M_0)                                     ####
-        ################################################################
-        
-        alpha = 0.1875 * (-4.0 + 5.0 * fa**2)
+        h13 = metric.H_contra_13_itf_i[
+            :, :, itf
+        ]
 
-        M_L = u_L / a_half
-        M_R = u_R / a_half
-        M_L[numpy.isnan(M_L)] = 0.0
-        M_R[numpy.isnan(M_R)] = 0.0
-        
-        rho_half = 0.5 * (rho_L + rho_R)
+        # ------------------------------------------------------------
+        # Left/right states
+        # ------------------------------------------------------------
 
-        M_L_plus  =  0.25 * (M_L + 1)**2 * (1 + 4*beta*(M_L - 1)**2)
-        M_R_minus = -0.25 * (M_R - 1)**2 * (1 + 4*beta*(M_R + 1)**2)
+        rho_L = variables_itf_i[
+            idx_rho, :, elem_L, 1, :
+        ]
 
-        Mp = (-(K_p / fa_p) * numpy.maximum(1.0 - sigma * M_bar_sq,0.0) \
-            * (p_R - p_L) / numpy.maximum(rho_half * a_half**2,1.0e-12))  # <-------------
-        
-        M = M_L_plus + M_R_minus + Mp
+        rho_R = variables_itf_i[
+            idx_rho, :, elem_R, 0, :
+        ]
 
-        P_L_plus_coeff  =  0.25 * (M_L + 1)**2 * (2 - M_L + 4*alpha*M_L*(M_L - 1)**2)
-        P_R_minus_coeff =  0.25 * (M_R - 1)**2 * (2 + M_R - 4*alpha*M_R*(M_R + 1)**2)
+        p_L = pressure_itf_i[
+            :, elem_L, 1, :
+        ]
 
-        P_L_plus  = P_L_plus_coeff  * p_L
-        P_R_minus = P_R_minus_coeff * p_R
+        p_R = pressure_itf_i[
+            :, elem_R, 0, :
+        ]
 
-        Pw = -K_u * P_L_plus_coeff * P_R_minus_coeff \
-             * (rho_L + rho_R) * fa * a_half * (u_R - u_L)      # <---------------------
+        u_L = u1_itf_i[
+            :, elem_L, 1, :
+        ]
 
-        P_face = P_L_plus + P_R_minus + Pw
+        u_R = u1_itf_i[
+            :, elem_R, 0, :
+        ]
 
-        adv_flux_i = sqrtG_i * a_half * (
-            numpy.maximum(0.0, M) * variables_itf_i[:, :, elem_L, 1, :] +
-            numpy.minimum(0.0, M) * variables_itf_i[:, :, elem_R, 0, :]
+        # ------------------------------------------------------------
+        # Directional acoustic speeds
+        # ------------------------------------------------------------
+
+        a_L = numpy.sqrt(
+            h11
+            * heat_capacity_ratio
+            * p_L
+            / numpy.maximum(rho_L, 1.0e-12)
         )
 
-        flux_x1_itf_i[:, :, elem_L, :, 1] = adv_flux_i
-
-        commonPi = sqrtG_i * P_face
-        flux_x1_itf_i[idx_rho_u1, :, elem_L, :, 1] += h11 * commonPi
-        flux_x1_itf_i[idx_rho_u2, :, elem_L, :, 1] += h12 * commonPi
-        flux_x1_itf_i[idx_rho_w,  :, elem_L, :, 1] += h13 * commonPi
-        flux_x1_itf_i[:, :, elem_R, :, 0] = flux_x1_itf_i[:, :, elem_L, :, 1]
-
-        w_adv_face_i = adv_flux_i[idx_rho_w, :, :]
-        wflux_adv_x1_itf_i[:, elem_L, :, 1] = w_adv_face_i
-        wflux_adv_x1_itf_i[:, elem_R, :, 0] = w_adv_face_i
-
-        w_pres_face_i = h13 * commonPi
-        wflux_pres_x1_itf_i[:, elem_L, :, 1] = w_pres_face_i / numpy.maximum(p_L, 1e-12)
-        wflux_pres_x1_itf_i[:, elem_R, :, 0] = w_pres_face_i / numpy.maximum(p_R, 1e-12)
-
-        # =====================================================
-        # X2 direction
-        # =====================================================
-        sqrtG_j = metric.sqrtG_itf_j[:, itf, :]
-        h21 = metric.H_contra_21_itf_j[:, itf, :]
-        h22 = metric.H_contra_22_itf_j[:, itf, :]
-        h23 = metric.H_contra_23_itf_j[:, itf, :]
-
-        rho_L = variables_itf_j[idx_rho, :, elem_L, 1, :]
-        rho_R = variables_itf_j[idx_rho, :, elem_R, 0, :]
-        p_L   = pressure_itf_j[:, elem_L, 1, :]
-        p_R   = pressure_itf_j[:, elem_R, 0, :]
-        v_L   = u2_itf_j[:, elem_L, 1, :]
-        v_R   = u2_itf_j[:, elem_R, 0, :]
-
-        a_L    = numpy.sqrt(h22 * heat_capacity_ratio * p_L / numpy.maximum(rho_L, 1e-12))
-        a_R    = numpy.sqrt(h22 * heat_capacity_ratio * p_R / numpy.maximum(rho_R, 1e-12))
-        a_half = 0.5 * (a_L + a_R)
-
-        M_bar_sq = (v_L**2 + v_R**2) / (2.0 * a_half**2)
-        M_bar    = numpy.sqrt(M_bar_sq)
-        
-        #################################################################
-        M_0_p = numpy.minimum(1.0, numpy.maximum(M_bar, 0.1))        ####
-        fa_p = M_0_p * (2.0 - M_0_p)                                 ####
-        #################################################################
-        
-        #################################################################
-        M_0 = numpy.minimum(1.0, numpy.maximum(M_bar, 1e-13))        ####
-        fa  = M_0 * (2.0 - M_0)                                      ####  
-        #################################################################
-          
-        alpha = 0.1875 * (-4.0 + 5.0 * fa**2)
-
-        M_L = v_L / a_half
-        M_R = v_R / a_half
-        M_L[numpy.isnan(M_L)] = 0.0
-        M_R[numpy.isnan(M_R)] = 0.0
-        
-        rho_half = 0.5 * (rho_L + rho_R)
-
-        M_L_plus  =  0.25 * (M_L + 1)**2 * (1 + 4*beta*(M_L - 1)**2)
-        M_R_minus = -0.25 * (M_R - 1)**2 * (1 + 4*beta*(M_R + 1)**2)
-        
-        Mp = (-(K_p / fa_p) * numpy.maximum(1.0 - sigma * M_bar_sq, 0.0)
-            * (p_R - p_L) / numpy.maximum(rho_half * a_half**2, 1.0e-12))    # <--------------------
-
-        M = M_L_plus + M_R_minus + Mp
-
-        P_L_plus_coeff  =  0.25 * (M_L + 1)**2 * (2 - M_L + 4*alpha*M_L*(M_L - 1)**2)
-        P_R_minus_coeff =  0.25 * (M_R - 1)**2 * (2 + M_R - 4*alpha*M_R*(M_R + 1)**2)
-
-        P_L_plus  = P_L_plus_coeff  * p_L
-        P_R_minus = P_R_minus_coeff * p_R
-
-        Pw = -K_u * P_L_plus_coeff * P_R_minus_coeff \
-             * (rho_L + rho_R) * fa * a_half * (v_R - v_L)          # <---------------------
-
-        P_face = P_L_plus + P_R_minus + Pw
-
-        adv_flux_j = sqrtG_j * a_half * (
-            numpy.maximum(0.0, M) * variables_itf_j[:, :, elem_L, 1, :] +
-            numpy.minimum(0.0, M) * variables_itf_j[:, :, elem_R, 0, :]
+        a_R = numpy.sqrt(
+            h11
+            * heat_capacity_ratio
+            * p_R
+            / numpy.maximum(rho_R, 1.0e-12)
         )
 
-        flux_x2_itf_j[:, :, elem_L, 1, :] = adv_flux_j
+        # ------------------------------------------------------------
+        # Local Mach numbers
+        # ------------------------------------------------------------
 
-        commonPj = sqrtG_j * P_face
-        flux_x2_itf_j[idx_rho_u1, :, elem_L, 1, :] += h21 * commonPj
-        flux_x2_itf_j[idx_rho_u2, :, elem_L, 1, :] += h22 * commonPj
-        flux_x2_itf_j[idx_rho_w,  :, elem_L, 1, :] += h23 * commonPj
-        flux_x2_itf_j[:, :, elem_R, 0, :] = flux_x2_itf_j[:, :, elem_L, 1, :]
+        M_L = (
+            u_L
+            / numpy.maximum(a_L, 1.0e-14)
+        )
 
-        w_adv_face_j = adv_flux_j[idx_rho_w, :, :]
-        wflux_adv_x2_itf_j[:, elem_L, 1, :] = w_adv_face_j
-        wflux_adv_x2_itf_j[:, elem_R, 0, :] = w_adv_face_j
+        M_R = (
+            u_R
+            / numpy.maximum(a_R, 1.0e-14)
+        )
 
-        w_pres_face_j = h23 * commonPj
-        wflux_pres_x2_itf_j[:, elem_L, 1, :] = w_pres_face_j / numpy.maximum(p_L, 1e-12)
-        wflux_pres_x2_itf_j[:, elem_R, 0, :] = w_pres_face_j / numpy.maximum(p_R, 1e-12)
-        
+        M_L = numpy.nan_to_num(
+            M_L,
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0
+        )
+
+        M_R = numpy.nan_to_num(
+            M_R,
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0
+        )
+
+        # ------------------------------------------------------------
+        # Basic AUSM Mach split
+        # ------------------------------------------------------------
+
+        M_L_plus = (
+            0.25
+            * (M_L + 1.0)**2
+        )
+
+        M_R_minus = (
+            -0.25
+            * (M_R - 1.0)**2
+        )
+
+        M = M_L_plus + M_R_minus
+
+        # ------------------------------------------------------------
+        # Basic AUSM pressure split
+        # ------------------------------------------------------------
+
+        P_L_plus_coeff = (
+            0.25
+            * (M_L + 1.0)**2
+            * (2.0 - M_L)
+        )
+
+        P_R_minus_coeff = (
+            0.25
+            * (M_R - 1.0)**2
+            * (2.0 + M_R)
+        )
+
+        P_L_plus = (
+            P_L_plus_coeff
+            * p_L
+        )
+
+        P_R_minus = (
+            P_R_minus_coeff
+            * p_R
+        )
+
+        P_face = (
+            P_L_plus
+            + P_R_minus
+        )
+
+        # ------------------------------------------------------------
+        # Advective flux
+        #
+        # Closely follows shallow-water AUSM:
+        #
+        # sqrtG [
+        #   max(M,0) a_L Q_L
+        # + min(M,0) a_R Q_R
+        # ]
+        # ------------------------------------------------------------
+
+        adv_flux_i = sqrtG_i * (
+            numpy.maximum(0.0, M)
+            * a_L
+            * variables_itf_i[
+                :, :, elem_L, 1, :
+            ]
+            +
+            numpy.minimum(0.0, M)
+            * a_R
+            * variables_itf_i[
+                :, :, elem_R, 0, :
+            ]
+        )
+
+        # ------------------------------------------------------------
+        # Store interface flux
+        # ------------------------------------------------------------
+
+        flux_x1_itf_i[
+            :, :, elem_L, :, 1
+        ] = adv_flux_i
+
+        # Pressure contribution
+        commonPi = (
+            sqrtG_i
+            * P_face
+        )
+
+        flux_x1_itf_i[
+            idx_rho_u1, :, elem_L, :, 1
+        ] += (
+            h11 * commonPi
+        )
+
+        flux_x1_itf_i[
+            idx_rho_u2, :, elem_L, :, 1
+        ] += (
+            h12 * commonPi
+        )
+
+        flux_x1_itf_i[
+            idx_rho_w, :, elem_L, :, 1
+        ] += (
+            h13 * commonPi
+        )
+
+        # Same flux from neighboring element
+        flux_x1_itf_i[
+            :, :, elem_R, :, 0
+        ] = flux_x1_itf_i[
+            :, :, elem_L, :, 1
+        ]
+
+        # ------------------------------------------------------------
+        # Separate rho-w advection
+        # ------------------------------------------------------------
+
+        w_adv_face_i = adv_flux_i[
+            idx_rho_w, :, :
+        ]
+
+        wflux_adv_x1_itf_i[
+            :, elem_L, :, 1
+        ] = w_adv_face_i
+
+        wflux_adv_x1_itf_i[
+            :, elem_R, :, 0
+        ] = w_adv_face_i
+
+        # ------------------------------------------------------------
+        # Separate rho-w pressure part
+        # ------------------------------------------------------------
+
+        w_pres_face_i = (
+            h13
+            * commonPi
+        )
+
+        wflux_pres_x1_itf_i[
+            :, elem_L, :, 1
+        ] = (
+            w_pres_face_i
+            / numpy.maximum(p_L, 1.0e-12)
+        )
+
+        wflux_pres_x1_itf_i[
+            :, elem_R, :, 0
+        ] = (
+            w_pres_face_i
+            / numpy.maximum(p_R, 1.0e-12)
+        )
+
+        # ============================================================
+        # X2 DIRECTION
+        # ============================================================
+
+        sqrtG_j = metric.sqrtG_itf_j[
+            :, itf, :
+        ]
+
+        h21 = metric.H_contra_21_itf_j[
+            :, itf, :
+        ]
+
+        h22 = metric.H_contra_22_itf_j[
+            :, itf, :
+        ]
+
+        h23 = metric.H_contra_23_itf_j[
+            :, itf, :
+        ]
+
+        # ------------------------------------------------------------
+        # Left/right states
+        # ------------------------------------------------------------
+
+        rho_L = variables_itf_j[
+            idx_rho, :, elem_L, 1, :
+        ]
+
+        rho_R = variables_itf_j[
+            idx_rho, :, elem_R, 0, :
+        ]
+
+        p_L = pressure_itf_j[
+            :, elem_L, 1, :
+        ]
+
+        p_R = pressure_itf_j[
+            :, elem_R, 0, :
+        ]
+
+        v_L = u2_itf_j[
+            :, elem_L, 1, :
+        ]
+
+        v_R = u2_itf_j[
+            :, elem_R, 0, :
+        ]
+
+        # ------------------------------------------------------------
+        # Directional acoustic speeds
+        # ------------------------------------------------------------
+
+        a_L = numpy.sqrt(
+            h22
+            * heat_capacity_ratio
+            * p_L
+            / numpy.maximum(rho_L, 1.0e-12)
+        )
+
+        a_R = numpy.sqrt(
+            h22
+            * heat_capacity_ratio
+            * p_R
+            / numpy.maximum(rho_R, 1.0e-12)
+        )
+
+        # ------------------------------------------------------------
+        # Local Mach numbers
+        # ------------------------------------------------------------
+
+        M_L = (
+            v_L
+            / numpy.maximum(a_L, 1.0e-14)
+        )
+
+        M_R = (
+            v_R
+            / numpy.maximum(a_R, 1.0e-14)
+        )
+
+        M_L = numpy.nan_to_num(
+            M_L,
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0
+        )
+
+        M_R = numpy.nan_to_num(
+            M_R,
+            nan=0.0,
+            posinf=0.0,
+            neginf=0.0
+        )
+
+        # ------------------------------------------------------------
+        # Basic AUSM Mach split
+        # ------------------------------------------------------------
+
+        M_L_plus = (
+            0.25
+            * (M_L + 1.0)**2
+        )
+
+        M_R_minus = (
+            -0.25
+            * (M_R - 1.0)**2
+        )
+
+        M = (
+            M_L_plus
+            + M_R_minus
+        )
+
+        # ------------------------------------------------------------
+        # Basic AUSM pressure split
+        # ------------------------------------------------------------
+
+        P_L_plus_coeff = (
+            0.25
+            * (M_L + 1.0)**2
+            * (2.0 - M_L)
+        )
+
+        P_R_minus_coeff = (
+            0.25
+            * (M_R - 1.0)**2
+            * (2.0 + M_R)
+        )
+
+        P_L_plus = (
+            P_L_plus_coeff
+            * p_L
+        )
+
+        P_R_minus = (
+            P_R_minus_coeff
+            * p_R
+        )
+
+        P_face = (
+            P_L_plus
+            + P_R_minus
+        )
+
+        # ------------------------------------------------------------
+        # Advective flux
+        # ------------------------------------------------------------
+
+        adv_flux_j = sqrtG_j * (
+            numpy.maximum(0.0, M)
+            * a_L
+            * variables_itf_j[
+                :, :, elem_L, 1, :
+            ]
+            +
+            numpy.minimum(0.0, M)
+            * a_R
+            * variables_itf_j[
+                :, :, elem_R, 0, :
+            ]
+        )
+
+        # ------------------------------------------------------------
+        # Store interface flux
+        # ------------------------------------------------------------
+
+        flux_x2_itf_j[
+            :, :, elem_L, 1, :
+        ] = adv_flux_j
+
+        # Pressure contribution
+        commonPj = (
+            sqrtG_j
+            * P_face
+        )
+
+        flux_x2_itf_j[
+            idx_rho_u1, :, elem_L, 1, :
+        ] += (
+            h21 * commonPj
+        )
+
+        flux_x2_itf_j[
+            idx_rho_u2, :, elem_L, 1, :
+        ] += (
+            h22 * commonPj
+        )
+
+        flux_x2_itf_j[
+            idx_rho_w, :, elem_L, 1, :
+        ] += (
+            h23 * commonPj
+        )
+
+        # Same numerical flux from right element
+        flux_x2_itf_j[
+            :, :, elem_R, 0, :
+        ] = flux_x2_itf_j[
+            :, :, elem_L, 1, :
+        ]
+
+        # ------------------------------------------------------------
+        # Separate rho-w advection
+        # ------------------------------------------------------------
+
+        w_adv_face_j = adv_flux_j[
+            idx_rho_w, :, :
+        ]
+
+        wflux_adv_x2_itf_j[
+            :, elem_L, 1, :
+        ] = w_adv_face_j
+
+        wflux_adv_x2_itf_j[
+            :, elem_R, 0, :
+        ] = w_adv_face_j
+
+        # ------------------------------------------------------------
+        # Separate rho-w pressure contribution
+        # ------------------------------------------------------------
+
+        w_pres_face_j = (
+            h23
+            * commonPj
+        )
+
+        wflux_pres_x2_itf_j[
+            :, elem_L, 1, :
+        ] = (
+            w_pres_face_j
+            / numpy.maximum(p_L, 1.0e-12)
+        )
+
+        wflux_pres_x2_itf_j[
+            :, elem_R, 0, :
+        ] = (
+            w_pres_face_j
+            / numpy.maximum(p_R, 1.0e-12)
+        )
 
 
 
