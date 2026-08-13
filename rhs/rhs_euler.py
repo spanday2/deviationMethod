@@ -64,14 +64,19 @@ def ausm_3d_vert(
         # --- Step 2: Reference Mach number ---
         M_bar_sq = (w_D**2 + w_U**2) / (2.0 * a_half**2)
         M_bar    = numpy.sqrt(M_bar_sq)
+        
+        ###############################################################
+        # --- Step 3: fa function ---                              ####
+        M_0_p = numpy.minimum(1.0, numpy.maximum(M_bar, 0.1))      ####
+        fa_p  = M_0_p * (2.0 - M_0_p)                              ####
+        ###############################################################
 
-        # --- Step 3: fa function ---
-        M_0_p = numpy.minimum(1.0, numpy.maximum(M_bar, 0.1))
-        fa_p  = M_0_p * (2.0 - M_0_p)
-
-        # fa for alpha and Pw — 
-        M_0 = numpy.minimum(1.0, numpy.maximum(M_bar, 1e-13))
-        fa  = M_0 * (2.0 - M_0)
+        ###############################################################
+        # fa for alpha and Pw —                                    ####
+        M_0 = numpy.minimum(1.0, numpy.maximum(M_bar, 1e-13))      ####
+        fa  = M_0 * (2.0 - M_0)                                    ####
+        ###############################################################
+        
         alpha = 0.1875 * (-4.0 + 5.0 * fa**2) 
 
         # --- Step 4: Interface Mach numbers using a_half ---
@@ -89,9 +94,10 @@ def ausm_3d_vert(
 
         # --- Step 6: Mp pressure-diffusion Mach correction ---
         Mp = -(K_p / fa_p) * numpy.maximum(1.0 - sigma * M_bar_sq, 0.0) \
-             * (p_U - p_D) / (rho_half * a_half**2)
+             * (p_U - p_D) / numpy.maximum(rho_half * a_half**2,1.0e-12)                     # <----------------------
+             
 
-        M = M_D_plus + M_U_minus  # Mp is causing problem, need dynamic pressure only
+        M = M_D_plus + M_U_minus + Mp
 
         # --- Step 7: Pressure split polynomials  ---
         P_D_plus_coeff  =  0.25 * (M_D + 1)**2 * (2 - M_D + 4*alpha*M_D*(M_D - 1)**2)
@@ -102,7 +108,7 @@ def ausm_3d_vert(
 
         # --- Step 8: Pw velocity-diffusion pressure correction ---
         Pw = -K_u * P_D_plus_coeff * P_U_minus_coeff \
-             * (rho_D + rho_U) * fa * a_half * (w_U - w_D)
+             * (rho_D + rho_U) * fa * a_half * (w_U - w_D)       # <----------------------
 
         # Total interface pressure
         P = P_D_plus + P_U_minus + Pw
@@ -141,6 +147,7 @@ def ausm_3d_hori_ausmplusup(
 ):
     beta  = 0.125
     K_u   = 0.75
+    K_p   = 0.25
     sigma = 1.0
 
     for itf in range(nb_interfaces_hori):
@@ -168,22 +175,33 @@ def ausm_3d_hori_ausmplusup(
 
         M_bar_sq = (u_L**2 + u_R**2) / (2.0 * a_half**2)
         M_bar    = numpy.sqrt(M_bar_sq)
+        
+        ################################################################
+        M_0_p = numpy.minimum(1.0, numpy.maximum(M_bar, 0.1))       ####
+        fa_p = M_0_p * (2.0 - M_0_p)                                ####
+        ################################################################
 
-        M_0 = numpy.minimum(1.0, numpy.maximum(M_bar, 1e-13))
-        fa  = M_0 * (2.0 - M_0)
+        ################################################################
+        M_0 = numpy.minimum(1.0, numpy.maximum(M_bar, 1e-13))       ####
+        fa  = M_0 * (2.0 - M_0)                                     ####
+        ################################################################
+        
         alpha = 0.1875 * (-4.0 + 5.0 * fa**2)
 
         M_L = u_L / a_half
         M_R = u_R / a_half
         M_L[numpy.isnan(M_L)] = 0.0
         M_R[numpy.isnan(M_R)] = 0.0
+        
+        rho_half = 0.5 * (rho_L + rho_R)
 
         M_L_plus  =  0.25 * (M_L + 1)**2 * (1 + 4*beta*(M_L - 1)**2)
         M_R_minus = -0.25 * (M_R - 1)**2 * (1 + 4*beta*(M_R + 1)**2)
 
-        # Mp = 0 for now (horizontal hydrostatic issue not present but
-        # keeping consistent with vertical for stability)
-        M = M_L_plus + M_R_minus
+        Mp = (-(K_p / fa_p) * numpy.maximum(1.0 - sigma * M_bar_sq,0.0) \
+            * (p_R - p_L) / numpy.maximum(rho_half * a_half**2,1.0e-12))  # <-------------
+        
+        M = M_L_plus + M_R_minus + Mp
 
         P_L_plus_coeff  =  0.25 * (M_L + 1)**2 * (2 - M_L + 4*alpha*M_L*(M_L - 1)**2)
         P_R_minus_coeff =  0.25 * (M_R - 1)**2 * (2 + M_R - 4*alpha*M_R*(M_R + 1)**2)
@@ -192,7 +210,7 @@ def ausm_3d_hori_ausmplusup(
         P_R_minus = P_R_minus_coeff * p_R
 
         Pw = -K_u * P_L_plus_coeff * P_R_minus_coeff \
-             * (rho_L + rho_R) * fa * a_half * (u_R - u_L)
+             * (rho_L + rho_R) * fa * a_half * (u_R - u_L)      # <---------------------
 
         P_face = P_L_plus + P_R_minus + Pw
 
@@ -238,20 +256,33 @@ def ausm_3d_hori_ausmplusup(
 
         M_bar_sq = (v_L**2 + v_R**2) / (2.0 * a_half**2)
         M_bar    = numpy.sqrt(M_bar_sq)
-
-        M_0 = numpy.minimum(1.0, numpy.maximum(M_bar, 1e-13))
-        fa  = M_0 * (2.0 - M_0)
+        
+        #################################################################
+        M_0_p = numpy.minimum(1.0, numpy.maximum(M_bar, 0.1))        ####
+        fa_p = M_0_p * (2.0 - M_0_p)                                 ####
+        #################################################################
+        
+        #################################################################
+        M_0 = numpy.minimum(1.0, numpy.maximum(M_bar, 1e-13))        ####
+        fa  = M_0 * (2.0 - M_0)                                      ####  
+        #################################################################
+          
         alpha = 0.1875 * (-4.0 + 5.0 * fa**2)
 
         M_L = v_L / a_half
         M_R = v_R / a_half
         M_L[numpy.isnan(M_L)] = 0.0
         M_R[numpy.isnan(M_R)] = 0.0
+        
+        rho_half = 0.5 * (rho_L + rho_R)
 
         M_L_plus  =  0.25 * (M_L + 1)**2 * (1 + 4*beta*(M_L - 1)**2)
         M_R_minus = -0.25 * (M_R - 1)**2 * (1 + 4*beta*(M_R + 1)**2)
+        
+        Mp = (-(K_p / fa_p) * numpy.maximum(1.0 - sigma * M_bar_sq, 0.0)
+            * (p_R - p_L) / numpy.maximum(rho_half * a_half**2, 1.0e-12))    # <--------------------
 
-        M = M_L_plus + M_R_minus
+        M = M_L_plus + M_R_minus + Mp
 
         P_L_plus_coeff  =  0.25 * (M_L + 1)**2 * (2 - M_L + 4*alpha*M_L*(M_L - 1)**2)
         P_R_minus_coeff =  0.25 * (M_R - 1)**2 * (2 + M_R - 4*alpha*M_R*(M_R + 1)**2)
@@ -260,7 +291,7 @@ def ausm_3d_hori_ausmplusup(
         P_R_minus = P_R_minus_coeff * p_R
 
         Pw = -K_u * P_L_plus_coeff * P_R_minus_coeff \
-             * (rho_L + rho_R) * fa * a_half * (v_R - v_L)
+             * (rho_L + rho_R) * fa * a_half * (v_R - v_L)          # <---------------------
 
         P_face = P_L_plus + P_R_minus + Pw
 
