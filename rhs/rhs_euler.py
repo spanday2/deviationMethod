@@ -36,31 +36,38 @@ def ausm_3d_vert(
     nb_interfaces_vert
 ):
     """
-    STEP 3: AUSM+
+    STEP 4: AUSM+ + Mp pressure-diffusion correction
 
-    Based on the successful shallow-water-style implementation.
+    Starting from the successful Step-3 implementation.
 
-    Step 2 already had:
-        - separate a_D and a_U
+    Included:
+        - separate directional acoustic speeds a_D, a_U
         - M_D = w_D / a_D
         - M_U = w_U / a_U
-        - AUSM+ Mach splitting with beta = 1/8
-        - state-dependent acoustic speed in the advective flux
-
-    Step 3 adds:
+        - AUSM+ Mach splitting
         - AUSM+ pressure splitting
-        - alpha = 3/16
-
-    Still NOT included:
         - Mp pressure-diffusion correction
-        - Pu/Pw velocity-diffusion correction
-        - low-Mach fa modification
 
-    Therefore this is a clean AUSM+ baseline.
+    NOT included yet:
+        - Pw velocity-diffusion pressure correction
+
+    Important:
+        - directional/metric acoustic speeds a_D, a_U are used
+          for Mach numbers and advective transport
+        - physical sound speeds c_D, c_U are used ONLY in the
+          pressure normalization of Mp
     """
 
-    beta  = 0.125       # 1/8
-    alpha = 0.1875      # 3/16
+    # AUSM+ constants
+    beta = 0.125          # 1/8
+    alpha = 0.1875        # 3/16
+
+    # Mp constants
+    K_p = 0.25
+    sigma = 1.0
+
+    # Low-Mach cutoff used only for Mp
+    M_INF = 0.1
 
     for itf in range(nb_interfaces_vert):
 
@@ -112,11 +119,11 @@ def ausm_3d_vert(
         ]
 
         # ============================================================
-        # Directional acoustic speeds
+        # Metric-scaled directional acoustic speeds
         #
         # a^3 = sqrt(h33 * gamma*p/rho)
         #
-        # Keep separate D/U speeds.
+        # These remain exactly as in successful Step 3.
         # ============================================================
 
         a_D = numpy.sqrt(
@@ -134,9 +141,7 @@ def ausm_3d_vert(
         )
 
         # ============================================================
-        # Local Mach numbers
-        #
-        # Each state uses its own directional acoustic speed.
+        # Local directional Mach numbers
         # ============================================================
 
         M_D = (
@@ -166,7 +171,7 @@ def ausm_3d_vert(
         # ============================================================
         # AUSM+ Mach splitting
         #
-        # Same as successful Step 2.
+        # SAME AS STEP 3
         # ============================================================
 
         M_D_plus = (
@@ -191,30 +196,132 @@ def ausm_3d_vert(
             )
         )
 
-        # ------------------------------------------------------------
-        # NO Mp IN STEP 3
-        # ------------------------------------------------------------
+        # ============================================================
+        # STEP 4:
+        # Reference Mach number for Mp
+        #
+        # Because we now use separate D/U acoustic speeds:
+        #
+        #     Mbar^2 = 0.5*(M_D^2 + M_U^2)
+        #
+        # ============================================================
+
+        M_bar_sq = (
+            0.5
+            * (
+                M_D**2
+                + M_U**2
+            )
+        )
+
+        M_bar = numpy.sqrt(
+            numpy.maximum(
+                M_bar_sq,
+                0.0
+            )
+        )
+
+        # ============================================================
+        # Low-Mach scaling used by Mp
+        #
+        # M0_p >= 0.1
+        #
+        # Therefore, at rest:
+        #
+        #     M0_p = 0.1
+        #     fa_p = 0.1*(2-0.1) = 0.19
+        #
+        # ============================================================
+
+        M_0_p = numpy.minimum(
+            1.0,
+            numpy.maximum(
+                M_bar,
+                M_INF
+            )
+        )
+
+        fa_p = (
+            M_0_p
+            * (2.0 - M_0_p)
+        )
+
+        # ============================================================
+        # Physical sound speed
+        #
+        # IMPORTANT:
+        #
+        # This is NOT the metric-scaled a_D/a_U.
+        #
+        # It is used only for normalizing the pressure jump in Mp.
+        # ============================================================
+
+        c_D = numpy.sqrt(
+            heat_capacity_ratio
+            * p_D
+            / numpy.maximum(rho_D, 1.0e-12)
+        )
+
+        c_U = numpy.sqrt(
+            heat_capacity_ratio
+            * p_U
+            / numpy.maximum(rho_U, 1.0e-12)
+        )
+
+        c_half = (
+            0.5
+            * (c_D + c_U)
+        )
+
+        rho_half = (
+            0.5
+            * (rho_D + rho_U)
+        )
+
+        # ============================================================
+        # STEP 4 NEW TERM:
+        # Mp pressure-diffusion correction
+        #
+        #          Kp
+        # Mp = - ------ max(1-sigma*Mbar^2,0)
+        #          fa
+        #
+        #              (p_U - p_D)
+        #         * -------------------
+        #             rho_half*c_half^2
+        #
+        # Physical c_half is deliberately used here.
+        # ============================================================
+
+        Mp = (
+            -(K_p / numpy.maximum(fa_p, 1.0e-12))
+            * numpy.maximum(
+                1.0 - sigma * M_bar_sq,
+                0.0
+            )
+            * (p_U - p_D)
+            / numpy.maximum(
+                rho_half * c_half**2,
+                1.0e-12
+            )
+        )
+
+        # ============================================================
+        # Total interface Mach number
+        #
+        # THIS is the main Step-4 change.
+        # ============================================================
 
         M = (
             M_D_plus
             + M_U_minus
+            + Mp
         )
 
         # ============================================================
-        # STEP 3 CHANGE:
         # AUSM+ pressure splitting
         #
-        # alpha = 3/16
-        #
-        # P5+(M) =
-        #   1/4 (M+1)^2 (2-M)
-        #   + alpha*M*(M^2-1)^2
-        #
-        # P5-(M) =
-        #   1/4 (M-1)^2 (2+M)
-        #   - alpha*M*(M^2-1)^2
-        #
-        # Written in equivalent factored form below.
+        # EXACTLY SAME AS STEP 3
         # ============================================================
 
         P_D_plus_coeff = (
@@ -253,9 +360,9 @@ def ausm_3d_vert(
             * p_U
         )
 
-        # ------------------------------------------------------------
-        # NO Pw IN STEP 3
-        # ------------------------------------------------------------
+        # ============================================================
+        # No Pw yet
+        # ============================================================
 
         P = (
             P_D_plus
@@ -265,10 +372,10 @@ def ausm_3d_vert(
         # ============================================================
         # Advective flux
         #
-        # IMPORTANT:
-        # Keep the successful shallow-water-style construction.
+        # Keep successful Step-3 shallow-water-style construction.
         #
-        # Do NOT use a_half here.
+        # IMPORTANT:
+        # Do NOT replace a_D/a_U with c_half.
         # ============================================================
 
         adv_flux = sqrtG_face * (
@@ -293,7 +400,6 @@ def ausm_3d_vert(
             :, :, elem_D, 1, :
         ] = adv_flux
 
-        # Pressure contribution to rho-u1
         flux_x3_itf_k[
             idx_rho_u1, :, elem_D, 1, :
         ] += (
@@ -302,7 +408,6 @@ def ausm_3d_vert(
             * P
         )
 
-        # Pressure contribution to rho-u2
         flux_x3_itf_k[
             idx_rho_u2, :, elem_D, 1, :
         ] += (
@@ -311,7 +416,6 @@ def ausm_3d_vert(
             * P
         )
 
-        # Pressure contribution to rho-w
         flux_x3_itf_k[
             idx_rho_w, :, elem_D, 1, :
         ] += (
@@ -320,7 +424,7 @@ def ausm_3d_vert(
             * P
         )
 
-        # Same interface flux seen by the upper element
+        # Same interface flux seen by upper element
         flux_x3_itf_k[
             :, :, elem_U, 0, :
         ] = flux_x3_itf_k[
@@ -331,9 +435,11 @@ def ausm_3d_vert(
         # Separate rho-w advective contribution
         # ============================================================
 
-        wflux_adv_face = adv_flux[
-            idx_rho_w, :, :
-        ]
+        wflux_adv_face = (
+            adv_flux[
+                idx_rho_w, :, :
+            ]
+        )
 
         wflux_adv_x3_itf_k[
             :, elem_D, 1, :
@@ -378,24 +484,35 @@ def ausm_3d_hori_ausmplusup(
     heat_capacity_ratio
 ):
     """
-    STEP 3: AUSM+
+    STEP 4: AUSM+ + Mp
 
-    Step 2:
-        AUSM+ Mach splitting
+    Starting from successful Step 3.
 
-    Step 3:
+    Included:
         AUSM+ Mach splitting
-        +
         AUSM+ pressure splitting
+        Mp pressure-diffusion correction
 
     Still excluded:
-        Mp = 0
-        Pw = 0
-        no low-Mach fa modification
+        Pw velocity-diffusion pressure correction
+
+    Important:
+        a_L / a_R:
+            metric-scaled directional acoustic speeds
+            -> Mach numbers and advective flux
+
+        c_L / c_R:
+            physical sound speeds
+            -> ONLY Mp pressure normalization
     """
 
-    beta  = 0.125       # 1/8
-    alpha = 0.1875      # 3/16
+    beta = 0.125
+    alpha = 0.1875
+
+    K_p = 0.25
+    sigma = 1.0
+
+    M_INF = 0.1
 
     for itf in range(nb_interfaces_hori):
 
@@ -423,7 +540,7 @@ def ausm_3d_hori_ausmplusup(
         ]
 
         # ------------------------------------------------------------
-        # Left/right states
+        # States
         # ------------------------------------------------------------
 
         rho_L = variables_itf_i[
@@ -450,9 +567,9 @@ def ausm_3d_hori_ausmplusup(
             :, elem_R, 0, :
         ]
 
-        # ------------------------------------------------------------
-        # Directional acoustic speeds
-        # ------------------------------------------------------------
+        # ============================================================
+        # Metric-scaled directional acoustic speeds
+        # ============================================================
 
         a_L = numpy.sqrt(
             h11
@@ -468,9 +585,9 @@ def ausm_3d_hori_ausmplusup(
             / numpy.maximum(rho_R, 1.0e-12)
         )
 
-        # ------------------------------------------------------------
+        # ============================================================
         # Local Mach numbers
-        # ------------------------------------------------------------
+        # ============================================================
 
         M_L = (
             u_L
@@ -496,10 +613,10 @@ def ausm_3d_hori_ausmplusup(
             neginf=0.0
         )
 
-        # ------------------------------------------------------------
+        # ============================================================
         # AUSM+ Mach splitting
-        # SAME AS STEP 2
-        # ------------------------------------------------------------
+        # SAME AS STEP 3
+        # ============================================================
 
         M_L_plus = (
             0.25
@@ -523,15 +640,99 @@ def ausm_3d_hori_ausmplusup(
             )
         )
 
-        # No Mp
-        M = (
-            M_L_plus
-            + M_R_minus
+        # ============================================================
+        # Reference Mach number for Mp
+        # ============================================================
+
+        M_bar_sq = (
+            0.5
+            * (
+                M_L**2
+                + M_R**2
+            )
+        )
+
+        M_bar = numpy.sqrt(
+            numpy.maximum(
+                M_bar_sq,
+                0.0
+            )
         )
 
         # ============================================================
-        # STEP 3:
+        # Mp low-Mach scaling
+        # ============================================================
+
+        M_0_p = numpy.minimum(
+            1.0,
+            numpy.maximum(
+                M_bar,
+                M_INF
+            )
+        )
+
+        fa_p = (
+            M_0_p
+            * (2.0 - M_0_p)
+        )
+
+        # ============================================================
+        # Physical sound speeds for Mp ONLY
+        # ============================================================
+
+        c_L = numpy.sqrt(
+            heat_capacity_ratio
+            * p_L
+            / numpy.maximum(rho_L, 1.0e-12)
+        )
+
+        c_R = numpy.sqrt(
+            heat_capacity_ratio
+            * p_R
+            / numpy.maximum(rho_R, 1.0e-12)
+        )
+
+        c_half = (
+            0.5
+            * (c_L + c_R)
+        )
+
+        rho_half = (
+            0.5
+            * (rho_L + rho_R)
+        )
+
+        # ============================================================
+        # STEP 4: Mp
+        # ============================================================
+
+        Mp = (
+            -(K_p / numpy.maximum(fa_p, 1.0e-12))
+            * numpy.maximum(
+                1.0 - sigma * M_bar_sq,
+                0.0
+            )
+            * (p_R - p_L)
+            / numpy.maximum(
+                rho_half * c_half**2,
+                1.0e-12
+            )
+        )
+
+        # ============================================================
+        # Total interface Mach number
+        # ============================================================
+
+        M = (
+            M_L_plus
+            + M_R_minus
+            + Mp
+        )
+
+        # ============================================================
         # AUSM+ pressure splitting
+        #
+        # SAME AS STEP 3
         # ============================================================
 
         P_L_plus_coeff = (
@@ -578,8 +779,7 @@ def ausm_3d_hori_ausmplusup(
 
         # ============================================================
         # Advective flux
-        #
-        # Keep Step-2 implementation EXACTLY.
+        # SAME successful state-dependent-speed formulation
         # ============================================================
 
         adv_flux_i = sqrtG_i * (
@@ -611,24 +811,15 @@ def ausm_3d_hori_ausmplusup(
 
         flux_x1_itf_i[
             idx_rho_u1, :, elem_L, :, 1
-        ] += (
-            h11
-            * commonPi
-        )
+        ] += h11 * commonPi
 
         flux_x1_itf_i[
             idx_rho_u2, :, elem_L, :, 1
-        ] += (
-            h12
-            * commonPi
-        )
+        ] += h12 * commonPi
 
         flux_x1_itf_i[
             idx_rho_w, :, elem_L, :, 1
-        ] += (
-            h13
-            * commonPi
-        )
+        ] += h13 * commonPi
 
         flux_x1_itf_i[
             :, :, elem_R, :, 0
@@ -637,12 +828,14 @@ def ausm_3d_hori_ausmplusup(
         ]
 
         # ------------------------------------------------------------
-        # Separate rho-w advective flux
+        # rho-w advective part
         # ------------------------------------------------------------
 
-        w_adv_face_i = adv_flux_i[
-            idx_rho_w, :, :
-        ]
+        w_adv_face_i = (
+            adv_flux_i[
+                idx_rho_w, :, :
+            ]
+        )
 
         wflux_adv_x1_itf_i[
             :, elem_L, :, 1
@@ -653,7 +846,7 @@ def ausm_3d_hori_ausmplusup(
         ] = w_adv_face_i
 
         # ------------------------------------------------------------
-        # Separate rho-w pressure flux
+        # rho-w pressure part
         # ------------------------------------------------------------
 
         w_pres_face_i = (
@@ -696,7 +889,7 @@ def ausm_3d_hori_ausmplusup(
         ]
 
         # ------------------------------------------------------------
-        # Left/right states
+        # States
         # ------------------------------------------------------------
 
         rho_L = variables_itf_j[
@@ -723,9 +916,9 @@ def ausm_3d_hori_ausmplusup(
             :, elem_R, 0, :
         ]
 
-        # ------------------------------------------------------------
-        # Directional acoustic speeds
-        # ------------------------------------------------------------
+        # ============================================================
+        # Metric-scaled directional acoustic speeds
+        # ============================================================
 
         a_L = numpy.sqrt(
             h22
@@ -741,9 +934,9 @@ def ausm_3d_hori_ausmplusup(
             / numpy.maximum(rho_R, 1.0e-12)
         )
 
-        # ------------------------------------------------------------
+        # ============================================================
         # Local Mach numbers
-        # ------------------------------------------------------------
+        # ============================================================
 
         M_L = (
             v_L
@@ -769,10 +962,9 @@ def ausm_3d_hori_ausmplusup(
             neginf=0.0
         )
 
-        # ------------------------------------------------------------
+        # ============================================================
         # AUSM+ Mach splitting
-        # SAME AS STEP 2
-        # ------------------------------------------------------------
+        # ============================================================
 
         M_L_plus = (
             0.25
@@ -796,15 +988,98 @@ def ausm_3d_hori_ausmplusup(
             )
         )
 
-        # No Mp
-        M = (
-            M_L_plus
-            + M_R_minus
+        # ============================================================
+        # Reference Mach number for Mp
+        # ============================================================
+
+        M_bar_sq = (
+            0.5
+            * (
+                M_L**2
+                + M_R**2
+            )
+        )
+
+        M_bar = numpy.sqrt(
+            numpy.maximum(
+                M_bar_sq,
+                0.0
+            )
         )
 
         # ============================================================
-        # AUSM+ pressure splitting
-        # STEP 3 CHANGE
+        # Mp low-Mach scaling
+        # ============================================================
+
+        M_0_p = numpy.minimum(
+            1.0,
+            numpy.maximum(
+                M_bar,
+                M_INF
+            )
+        )
+
+        fa_p = (
+            M_0_p
+            * (2.0 - M_0_p)
+        )
+
+        # ============================================================
+        # Physical sound speed for Mp ONLY
+        # ============================================================
+
+        c_L = numpy.sqrt(
+            heat_capacity_ratio
+            * p_L
+            / numpy.maximum(rho_L, 1.0e-12)
+        )
+
+        c_R = numpy.sqrt(
+            heat_capacity_ratio
+            * p_R
+            / numpy.maximum(rho_R, 1.0e-12)
+        )
+
+        c_half = (
+            0.5
+            * (c_L + c_R)
+        )
+
+        rho_half = (
+            0.5
+            * (rho_L + rho_R)
+        )
+
+        # ============================================================
+        # STEP 4: Mp
+        # ============================================================
+
+        Mp = (
+            -(K_p / numpy.maximum(fa_p, 1.0e-12))
+            * numpy.maximum(
+                1.0 - sigma * M_bar_sq,
+                0.0
+            )
+            * (p_R - p_L)
+            / numpy.maximum(
+                rho_half * c_half**2,
+                1.0e-12
+            )
+        )
+
+        # ============================================================
+        # Total Mach
+        # ============================================================
+
+        M = (
+            M_L_plus
+            + M_R_minus
+            + Mp
+        )
+
+        # ============================================================
+        # AUSM+ pressure split
+        # SAME AS STEP 3
         # ============================================================
 
         P_L_plus_coeff = (
@@ -843,7 +1118,7 @@ def ausm_3d_hori_ausmplusup(
             * p_R
         )
 
-        # No Pw
+        # Still NO Pw
         P_face = (
             P_L_plus
             + P_R_minus
@@ -851,7 +1126,6 @@ def ausm_3d_hori_ausmplusup(
 
         # ============================================================
         # Advective flux
-        # Keep Step-2 form
         # ============================================================
 
         adv_flux_j = sqrtG_j * (
@@ -883,24 +1157,15 @@ def ausm_3d_hori_ausmplusup(
 
         flux_x2_itf_j[
             idx_rho_u1, :, elem_L, 1, :
-        ] += (
-            h21
-            * commonPj
-        )
+        ] += h21 * commonPj
 
         flux_x2_itf_j[
             idx_rho_u2, :, elem_L, 1, :
-        ] += (
-            h22
-            * commonPj
-        )
+        ] += h22 * commonPj
 
         flux_x2_itf_j[
             idx_rho_w, :, elem_L, 1, :
-        ] += (
-            h23
-            * commonPj
-        )
+        ] += h23 * commonPj
 
         flux_x2_itf_j[
             :, :, elem_R, 0, :
@@ -909,12 +1174,14 @@ def ausm_3d_hori_ausmplusup(
         ]
 
         # ------------------------------------------------------------
-        # Separate rho-w advective contribution
+        # rho-w advective part
         # ------------------------------------------------------------
 
-        w_adv_face_j = adv_flux_j[
-            idx_rho_w, :, :
-        ]
+        w_adv_face_j = (
+            adv_flux_j[
+                idx_rho_w, :, :
+            ]
+        )
 
         wflux_adv_x2_itf_j[
             :, elem_L, 1, :
@@ -925,7 +1192,7 @@ def ausm_3d_hori_ausmplusup(
         ] = w_adv_face_j
 
         # ------------------------------------------------------------
-        # Separate rho-w pressure contribution
+        # rho-w pressure part
         # ------------------------------------------------------------
 
         w_pres_face_j = (
