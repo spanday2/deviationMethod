@@ -36,30 +36,31 @@ def ausm_3d_vert(
     nb_interfaces_vert
 ):
     """
-    Basic AUSM flux in the vertical direction.
+    STEP 3: AUSM+
 
-    This version is intentionally close to the working shallow-water AUSM
-    implementation:
+    Based on the successful shallow-water-style implementation.
 
-        M_D = w_D / a_D
-        M_U = w_U / a_U
+    Step 2 already had:
+        - separate a_D and a_U
+        - M_D = w_D / a_D
+        - M_U = w_U / a_U
+        - AUSM+ Mach splitting with beta = 1/8
+        - state-dependent acoustic speed in the advective flux
 
-        M = M_D^+ + M_U^-
+    Step 3 adds:
+        - AUSM+ pressure splitting
+        - alpha = 3/16
 
-    and the advective flux uses the acoustic speed belonging to the
-    upwind state:
+    Still NOT included:
+        - Mp pressure-diffusion correction
+        - Pu/Pw velocity-diffusion correction
+        - low-Mach fa modification
 
-        F_adv = sqrtG * [
-            max(M,0) * a_D * Q_D
-          + min(M,0) * a_U * Q_U
-        ]
-
-    No AUSM+up corrections:
-        Mp = 0
-        Pw = 0
-
-    Subsonic polynomial branch only.
+    Therefore this is a clean AUSM+ baseline.
     """
+
+    beta  = 0.125       # 1/8
+    alpha = 0.1875      # 3/16
 
     for itf in range(nb_interfaces_vert):
 
@@ -67,7 +68,7 @@ def ausm_3d_vert(
         elem_U = itf + 1
 
         # ============================================================
-        # Metric terms at this vertical interface
+        # Metric terms
         # ============================================================
 
         sqrtG_face = metric.sqrtG_itf_k[itf, :, :]
@@ -113,17 +114,9 @@ def ausm_3d_vert(
         # ============================================================
         # Directional acoustic speeds
         #
-        # Analogous to the working shallow-water AUSM:
+        # a^3 = sqrt(h33 * gamma*p/rho)
         #
-        #   a = sqrt(metric * physical wave speed^2)
-        #
-        # Euler:
-        #
-        #   c^2 = gamma * p / rho
-        #
-        # therefore
-        #
-        #   a^3 = sqrt(h33 * gamma*p/rho)
+        # Keep separate D/U speeds.
         # ============================================================
 
         a_D = numpy.sqrt(
@@ -143,12 +136,18 @@ def ausm_3d_vert(
         # ============================================================
         # Local Mach numbers
         #
-        # IMPORTANT:
-        # Each state uses its own acoustic speed.
+        # Each state uses its own directional acoustic speed.
         # ============================================================
 
-        M_D = w_D / numpy.maximum(a_D, 1.0e-14)
-        M_U = w_U / numpy.maximum(a_U, 1.0e-14)
+        M_D = (
+            w_D
+            / numpy.maximum(a_D, 1.0e-14)
+        )
+
+        M_U = (
+            w_U
+            / numpy.maximum(a_U, 1.0e-14)
+        )
 
         M_D = numpy.nan_to_num(
             M_D,
@@ -165,67 +164,111 @@ def ausm_3d_vert(
         )
 
         # ============================================================
-        # Basic AUSM Mach splitting
+        # AUSM+ Mach splitting
         #
-        # Same simple subsonic form as the shallow-water implementation:
-        #
-        #   M_D+ =  1/4 (M_D + 1)^2
-        #   M_U- = -1/4 (M_U - 1)^2
-        #
+        # Same as successful Step 2.
         # ============================================================
 
         M_D_plus = (
             0.25
             * (M_D + 1.0)**2
+            * (
+                1.0
+                + 4.0
+                * beta
+                * (M_D - 1.0)**2
+            )
         )
 
         M_U_minus = (
             -0.25
             * (M_U - 1.0)**2
+            * (
+                1.0
+                + 4.0
+                * beta
+                * (M_U + 1.0)**2
+            )
         )
 
-        M = M_D_plus + M_U_minus
+        # ------------------------------------------------------------
+        # NO Mp IN STEP 3
+        # ------------------------------------------------------------
+
+        M = (
+            M_D_plus
+            + M_U_minus
+        )
 
         # ============================================================
-        # Basic AUSM pressure splitting
+        # STEP 3 CHANGE:
+        # AUSM+ pressure splitting
         #
-        # Subsonic pressure polynomials:
+        # alpha = 3/16
         #
-        # P+(M) = 1/4 (M+1)^2 (2-M)
-        # P-(M) = 1/4 (M-1)^2 (2+M)
+        # P5+(M) =
+        #   1/4 (M+1)^2 (2-M)
+        #   + alpha*M*(M^2-1)^2
         #
-        # No Pw correction.
+        # P5-(M) =
+        #   1/4 (M-1)^2 (2+M)
+        #   - alpha*M*(M^2-1)^2
+        #
+        # Written in equivalent factored form below.
         # ============================================================
 
         P_D_plus_coeff = (
             0.25
             * (M_D + 1.0)**2
-            * (2.0 - M_D)
+            * (
+                2.0
+                - M_D
+                + 4.0
+                * alpha
+                * M_D
+                * (M_D - 1.0)**2
+            )
         )
 
         P_U_minus_coeff = (
             0.25
             * (M_U - 1.0)**2
-            * (2.0 + M_U)
+            * (
+                2.0
+                + M_U
+                - 4.0
+                * alpha
+                * M_U
+                * (M_U + 1.0)**2
+            )
         )
 
-        P_D_plus = P_D_plus_coeff * p_D
-        P_U_minus = P_U_minus_coeff * p_U
+        P_D_plus = (
+            P_D_plus_coeff
+            * p_D
+        )
 
-        P = P_D_plus + P_U_minus
+        P_U_minus = (
+            P_U_minus_coeff
+            * p_U
+        )
+
+        # ------------------------------------------------------------
+        # NO Pw IN STEP 3
+        # ------------------------------------------------------------
+
+        P = (
+            P_D_plus
+            + P_U_minus
+        )
 
         # ============================================================
-        # AUSM advective flux
+        # Advective flux
         #
-        # IMPORTANT difference from old implementation:
+        # IMPORTANT:
+        # Keep the successful shallow-water-style construction.
         #
-        # OLD:
-        #     a_half * [ M+ Q_D + M- Q_U ]
-        #
-        # NEW:
-        #     M+ a_D Q_D + M- a_U Q_U
-        #
-        # This follows the structure of your working shallow-water code.
+        # Do NOT use a_half here.
         # ============================================================
 
         adv_flux = sqrtG_face * (
@@ -243,13 +286,14 @@ def ausm_3d_vert(
         )
 
         # ============================================================
-        # Assemble complete vertical Euler flux
+        # Assemble vertical flux
         # ============================================================
 
         flux_x3_itf_k[
             :, :, elem_D, 1, :
         ] = adv_flux
 
+        # Pressure contribution to rho-u1
         flux_x3_itf_k[
             idx_rho_u1, :, elem_D, 1, :
         ] += (
@@ -258,6 +302,7 @@ def ausm_3d_vert(
             * P
         )
 
+        # Pressure contribution to rho-u2
         flux_x3_itf_k[
             idx_rho_u2, :, elem_D, 1, :
         ] += (
@@ -266,6 +311,7 @@ def ausm_3d_vert(
             * P
         )
 
+        # Pressure contribution to rho-w
         flux_x3_itf_k[
             idx_rho_w, :, elem_D, 1, :
         ] += (
@@ -274,7 +320,7 @@ def ausm_3d_vert(
             * P
         )
 
-        # Same numerical flux must be seen by both elements
+        # Same interface flux seen by the upper element
         flux_x3_itf_k[
             :, :, elem_U, 0, :
         ] = flux_x3_itf_k[
@@ -282,7 +328,7 @@ def ausm_3d_vert(
         ]
 
         # ============================================================
-        # Separate rho-w advective part
+        # Separate rho-w advective contribution
         # ============================================================
 
         wflux_adv_face = adv_flux[
@@ -319,7 +365,7 @@ def ausm_3d_vert(
         ] = (
             wflux_pres_face
             / numpy.maximum(p_U, 1.0e-12)
-        )     
+        )
 
 
 def ausm_3d_hori_ausmplusup(
@@ -332,24 +378,24 @@ def ausm_3d_hori_ausmplusup(
     heat_capacity_ratio
 ):
     """
-    Basic AUSM horizontal flux.
+    STEP 3: AUSM+
 
-    Deliberately follows the structure of the working shallow-water
-    AUSM implementation.
+    Step 2:
+        AUSM+ Mach splitting
 
-    Main characteristics:
-      * separate a_L and a_R
-      * M_L = u_L/a_L
-      * M_R = u_R/a_R
-      * simple AUSM Mach splitting
-      * left advection uses a_L
-      * right advection uses a_R
-      * basic AUSM pressure splitting
-      * Mp = 0
-      * Pw = 0
+    Step 3:
+        AUSM+ Mach splitting
+        +
+        AUSM+ pressure splitting
 
-    Subsonic polynomial branch only.
+    Still excluded:
+        Mp = 0
+        Pw = 0
+        no low-Mach fa modification
     """
+
+    beta  = 0.125       # 1/8
+    alpha = 0.1875      # 3/16
 
     for itf in range(nb_interfaces_hori):
 
@@ -451,35 +497,67 @@ def ausm_3d_hori_ausmplusup(
         )
 
         # ------------------------------------------------------------
-        # Basic AUSM Mach split
+        # AUSM+ Mach splitting
+        # SAME AS STEP 2
         # ------------------------------------------------------------
 
         M_L_plus = (
             0.25
             * (M_L + 1.0)**2
+            * (
+                1.0
+                + 4.0
+                * beta
+                * (M_L - 1.0)**2
+            )
         )
 
         M_R_minus = (
             -0.25
             * (M_R - 1.0)**2
+            * (
+                1.0
+                + 4.0
+                * beta
+                * (M_R + 1.0)**2
+            )
         )
 
-        M = M_L_plus + M_R_minus
+        # No Mp
+        M = (
+            M_L_plus
+            + M_R_minus
+        )
 
-        # ------------------------------------------------------------
-        # Basic AUSM pressure split
-        # ------------------------------------------------------------
+        # ============================================================
+        # STEP 3:
+        # AUSM+ pressure splitting
+        # ============================================================
 
         P_L_plus_coeff = (
             0.25
             * (M_L + 1.0)**2
-            * (2.0 - M_L)
+            * (
+                2.0
+                - M_L
+                + 4.0
+                * alpha
+                * M_L
+                * (M_L - 1.0)**2
+            )
         )
 
         P_R_minus_coeff = (
             0.25
             * (M_R - 1.0)**2
-            * (2.0 + M_R)
+            * (
+                2.0
+                + M_R
+                - 4.0
+                * alpha
+                * M_R
+                * (M_R + 1.0)**2
+            )
         )
 
         P_L_plus = (
@@ -492,21 +570,17 @@ def ausm_3d_hori_ausmplusup(
             * p_R
         )
 
+        # No Pw
         P_face = (
             P_L_plus
             + P_R_minus
         )
 
-        # ------------------------------------------------------------
+        # ============================================================
         # Advective flux
         #
-        # Closely follows shallow-water AUSM:
-        #
-        # sqrtG [
-        #   max(M,0) a_L Q_L
-        # + min(M,0) a_R Q_R
-        # ]
-        # ------------------------------------------------------------
+        # Keep Step-2 implementation EXACTLY.
+        # ============================================================
 
         adv_flux_i = sqrtG_i * (
             numpy.maximum(0.0, M)
@@ -522,15 +596,14 @@ def ausm_3d_hori_ausmplusup(
             ]
         )
 
-        # ------------------------------------------------------------
-        # Store interface flux
-        # ------------------------------------------------------------
+        # ============================================================
+        # Assemble X1 flux
+        # ============================================================
 
         flux_x1_itf_i[
             :, :, elem_L, :, 1
         ] = adv_flux_i
 
-        # Pressure contribution
         commonPi = (
             sqrtG_i
             * P_face
@@ -539,22 +612,24 @@ def ausm_3d_hori_ausmplusup(
         flux_x1_itf_i[
             idx_rho_u1, :, elem_L, :, 1
         ] += (
-            h11 * commonPi
+            h11
+            * commonPi
         )
 
         flux_x1_itf_i[
             idx_rho_u2, :, elem_L, :, 1
         ] += (
-            h12 * commonPi
+            h12
+            * commonPi
         )
 
         flux_x1_itf_i[
             idx_rho_w, :, elem_L, :, 1
         ] += (
-            h13 * commonPi
+            h13
+            * commonPi
         )
 
-        # Same flux from neighboring element
         flux_x1_itf_i[
             :, :, elem_R, :, 0
         ] = flux_x1_itf_i[
@@ -562,7 +637,7 @@ def ausm_3d_hori_ausmplusup(
         ]
 
         # ------------------------------------------------------------
-        # Separate rho-w advection
+        # Separate rho-w advective flux
         # ------------------------------------------------------------
 
         w_adv_face_i = adv_flux_i[
@@ -578,7 +653,7 @@ def ausm_3d_hori_ausmplusup(
         ] = w_adv_face_i
 
         # ------------------------------------------------------------
-        # Separate rho-w pressure part
+        # Separate rho-w pressure flux
         # ------------------------------------------------------------
 
         w_pres_face_i = (
@@ -695,38 +770,67 @@ def ausm_3d_hori_ausmplusup(
         )
 
         # ------------------------------------------------------------
-        # Basic AUSM Mach split
+        # AUSM+ Mach splitting
+        # SAME AS STEP 2
         # ------------------------------------------------------------
 
         M_L_plus = (
             0.25
             * (M_L + 1.0)**2
+            * (
+                1.0
+                + 4.0
+                * beta
+                * (M_L - 1.0)**2
+            )
         )
 
         M_R_minus = (
             -0.25
             * (M_R - 1.0)**2
+            * (
+                1.0
+                + 4.0
+                * beta
+                * (M_R + 1.0)**2
+            )
         )
 
+        # No Mp
         M = (
             M_L_plus
             + M_R_minus
         )
 
-        # ------------------------------------------------------------
-        # Basic AUSM pressure split
-        # ------------------------------------------------------------
+        # ============================================================
+        # AUSM+ pressure splitting
+        # STEP 3 CHANGE
+        # ============================================================
 
         P_L_plus_coeff = (
             0.25
             * (M_L + 1.0)**2
-            * (2.0 - M_L)
+            * (
+                2.0
+                - M_L
+                + 4.0
+                * alpha
+                * M_L
+                * (M_L - 1.0)**2
+            )
         )
 
         P_R_minus_coeff = (
             0.25
             * (M_R - 1.0)**2
-            * (2.0 + M_R)
+            * (
+                2.0
+                + M_R
+                - 4.0
+                * alpha
+                * M_R
+                * (M_R + 1.0)**2
+            )
         )
 
         P_L_plus = (
@@ -739,14 +843,16 @@ def ausm_3d_hori_ausmplusup(
             * p_R
         )
 
+        # No Pw
         P_face = (
             P_L_plus
             + P_R_minus
         )
 
-        # ------------------------------------------------------------
+        # ============================================================
         # Advective flux
-        # ------------------------------------------------------------
+        # Keep Step-2 form
+        # ============================================================
 
         adv_flux_j = sqrtG_j * (
             numpy.maximum(0.0, M)
@@ -762,15 +868,14 @@ def ausm_3d_hori_ausmplusup(
             ]
         )
 
-        # ------------------------------------------------------------
-        # Store interface flux
-        # ------------------------------------------------------------
+        # ============================================================
+        # Assemble X2 flux
+        # ============================================================
 
         flux_x2_itf_j[
             :, :, elem_L, 1, :
         ] = adv_flux_j
 
-        # Pressure contribution
         commonPj = (
             sqrtG_j
             * P_face
@@ -779,22 +884,24 @@ def ausm_3d_hori_ausmplusup(
         flux_x2_itf_j[
             idx_rho_u1, :, elem_L, 1, :
         ] += (
-            h21 * commonPj
+            h21
+            * commonPj
         )
 
         flux_x2_itf_j[
             idx_rho_u2, :, elem_L, 1, :
         ] += (
-            h22 * commonPj
+            h22
+            * commonPj
         )
 
         flux_x2_itf_j[
             idx_rho_w, :, elem_L, 1, :
         ] += (
-            h23 * commonPj
+            h23
+            * commonPj
         )
 
-        # Same numerical flux from right element
         flux_x2_itf_j[
             :, :, elem_R, 0, :
         ] = flux_x2_itf_j[
@@ -802,7 +909,7 @@ def ausm_3d_hori_ausmplusup(
         ]
 
         # ------------------------------------------------------------
-        # Separate rho-w advection
+        # Separate rho-w advective contribution
         # ------------------------------------------------------------
 
         w_adv_face_j = adv_flux_j[
