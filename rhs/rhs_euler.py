@@ -39,8 +39,9 @@ def ausm_3d_vert(
     K_u = 0.75
     sigma = 1.0
 
-    # Low-Mach cutoff
-    M_INF = 0.1
+    # Low-Mach cutoffs
+    M_INF_P = 0.1
+    M_INF_U = 1e-12
 
     for itf in range(nb_interfaces_vert):
 
@@ -75,10 +76,13 @@ def ausm_3d_vert(
         M_bar_sq = 0.5 * (M_D**2 + M_U**2)
         M_bar = numpy.sqrt(numpy.maximum(M_bar_sq, 0.0))
 
-        M_0 = numpy.minimum(1.0, numpy.maximum(M_bar, M_INF))
-        fa = M_0 * (2.0 - M_0)
+        M_0_p = numpy.minimum(1.0, numpy.maximum(M_bar, M_INF_P))
+        fa_p = M_0_p * (2.0 - M_0_p)
 
-        alpha = 0.1875 * (-4.0 + 5.0 * fa**2)
+        M_0_u = numpy.minimum(1.0, numpy.maximum(M_bar, M_INF_U))
+        fa_u = M_0_u * (2.0 - M_0_u)
+
+        alpha = 0.1875 * (-4.0 + 5.0 * fa_p**2)
 
         M_D_plus = 0.25 * (M_D + 1.0)**2 * (1.0 + 4.0 * beta * (M_D - 1.0)**2)
         M_U_minus = -0.25 * (M_U - 1.0)**2 * (1.0 + 4.0 * beta * (M_U + 1.0)**2)
@@ -93,7 +97,7 @@ def ausm_3d_vert(
 
         rho_half = 0.5 * (rho_D + rho_U)
 
-        Mp = -(K_p / numpy.maximum(fa, 1.0e-12)) * numpy.maximum(1.0 - sigma * M_bar_sq, 0.0) * (p_U - p_D) / numpy.maximum(rho_half * c_half**2, 1.0e-12)
+        Mp = -(K_p / numpy.maximum(fa_p, 1.0e-12)) * numpy.maximum(1.0 - sigma * M_bar_sq, 0.0) * (p_U - p_D) / numpy.maximum(rho_half * c_half**2, 1.0e-12)
         M = M_D_plus + M_U_minus + Mp
 
         P_D_plus_coeff = 0.25 * (M_D + 1.0)**2 * (2.0 - M_D + 4.0 * alpha * M_D * (M_D - 1.0)**2)
@@ -102,7 +106,7 @@ def ausm_3d_vert(
         P_D_plus = P_D_plus_coeff * p_D
         P_U_minus = P_U_minus_coeff * p_U
 
-        Pw = -K_u * P_D_plus_coeff * P_U_minus_coeff * (rho_D + rho_U) * fa * a_half * (w_U - w_D)
+        Pw = -K_u * P_D_plus_coeff * P_U_minus_coeff * (rho_D + rho_U) * fa_u * a_half * (w_U - w_D)
         P = P_D_plus + P_U_minus + Pw
 
         # ============================================================
@@ -145,11 +149,15 @@ def ausm_3d_hori_ausmplusup(
     nb_interfaces_hori, idx_rho, idx_rho_u1, idx_rho_u2, idx_rho_w,
     heat_capacity_ratio
 ):
+
     beta = 0.125
     K_p = 0.25
     K_u = 0.75
     sigma = 1.0
-    M_INF = 0.1
+
+    # Low-Mach cutoffs
+    M_INF_P = 0.1
+    M_INF_U = 1e-12
 
     for itf in range(nb_interfaces_hori):
 
@@ -187,10 +195,13 @@ def ausm_3d_hori_ausmplusup(
         M_bar_sq = 0.5 * (M_L**2 + M_R**2)
         M_bar = numpy.sqrt(numpy.maximum(M_bar_sq, 0.0))
 
-        M_0 = numpy.minimum(1.0, numpy.maximum(M_bar, M_INF))
-        fa = M_0 * (2.0 - M_0)
+        M_0_p = numpy.minimum(1.0, numpy.maximum(M_bar, M_INF_P))
+        fa_p = M_0_p * (2.0 - M_0_p)
 
-        alpha = 0.1875 * (-4.0 + 5.0 * fa**2)
+        M_0_u = numpy.minimum(1.0, numpy.maximum(M_bar, M_INF_U))
+        fa_u = M_0_u * (2.0 - M_0_u)
+
+        alpha = 0.1875 * (-4.0 + 5.0 * fa_p**2)
 
         M_L_plus = 0.25 * (M_L + 1.0)**2 * (1.0 + 4.0 * beta * (M_L - 1.0)**2)
         M_R_minus = -0.25 * (M_R - 1.0)**2 * (1.0 + 4.0 * beta * (M_R + 1.0)**2)
@@ -198,13 +209,14 @@ def ausm_3d_hori_ausmplusup(
         # ============================================================
         # Physical acoustic speeds for Mp ONLY
         # ============================================================
+
         c_L = numpy.sqrt(heat_capacity_ratio * p_L / numpy.maximum(rho_L, 1.0e-12))
         c_R = numpy.sqrt(heat_capacity_ratio * p_R / numpy.maximum(rho_R, 1.0e-12))
         c_half = 0.5 * (c_L + c_R)
 
         rho_half = 0.5 * (rho_L + rho_R)
 
-        Mp = -(K_p / numpy.maximum(fa, 1.0e-12)) * numpy.maximum(1.0 - sigma * M_bar_sq, 0.0) * (p_R - p_L) / numpy.maximum(rho_half * c_half**2, 1.0e-12)
+        Mp = -(K_p / numpy.maximum(fa_p, 1.0e-12)) * numpy.maximum(1.0 - sigma * M_bar_sq, 0.0) * (p_R - p_L) / numpy.maximum(rho_half * c_half**2, 1.0e-12)
 
         M = M_L_plus + M_R_minus + Mp
 
@@ -214,15 +226,16 @@ def ausm_3d_hori_ausmplusup(
         P_L_plus = P_L_plus_coeff * p_L
         P_R_minus = P_R_minus_coeff * p_R
 
-        Pw = -K_u * P_L_plus_coeff * P_R_minus_coeff * (rho_L + rho_R) * fa * a_half * (u_R - u_L)
+        Pw = -K_u * P_L_plus_coeff * P_R_minus_coeff * (rho_L + rho_R) * fa_u * a_half * (u_R - u_L)
 
         P_face = P_L_plus + P_R_minus + Pw
 
         # ============================================================
         # Assemble X1 flux
         # ============================================================
+
         adv_flux_i = sqrtG_i * (numpy.maximum(0.0, M) * a_L * variables_itf_i[:, :, elem_L, 1, :] + numpy.minimum(0.0, M) * a_R * variables_itf_i[:, :, elem_R, 0, :])
-        
+
         flux_x1_itf_i[:, :, elem_L, :, 1] = adv_flux_i
 
         commonPi = sqrtG_i * P_face
@@ -236,6 +249,7 @@ def ausm_3d_hori_ausmplusup(
         # ------------------------------------------------------------
         # rho-w advective contribution
         # ------------------------------------------------------------
+
         w_adv_face_i = adv_flux_i[idx_rho_w, :, :]
         wflux_adv_x1_itf_i[:, elem_L, :, 1] = w_adv_face_i
         wflux_adv_x1_itf_i[:, elem_R, :, 0] = w_adv_face_i
@@ -243,6 +257,7 @@ def ausm_3d_hori_ausmplusup(
         # ------------------------------------------------------------
         # rho-w pressure contribution
         # ------------------------------------------------------------
+
         w_pres_face_i = h13 * commonPi
         wflux_pres_x1_itf_i[:, elem_L, :, 1] = w_pres_face_i / numpy.maximum(p_L, 1.0e-12)
         wflux_pres_x1_itf_i[:, elem_R, :, 0] = w_pres_face_i / numpy.maximum(p_R, 1.0e-12)
@@ -251,7 +266,6 @@ def ausm_3d_hori_ausmplusup(
         # ============================================================
         # X2 DIRECTION
         # ============================================================
-
 
         sqrtG_j = metric.sqrtG_itf_j[:, itf, :]
         h21 = metric.H_contra_21_itf_j[:, itf, :]
@@ -280,10 +294,13 @@ def ausm_3d_hori_ausmplusup(
         M_bar_sq = 0.5 * (M_L**2 + M_R**2)
         M_bar = numpy.sqrt(numpy.maximum(M_bar_sq, 0.0))
 
-        M_0 = numpy.minimum(1.0, numpy.maximum(M_bar, M_INF))
-        fa = M_0 * (2.0 - M_0)
+        M_0_p = numpy.minimum(1.0, numpy.maximum(M_bar, M_INF_P))
+        fa_p = M_0_p * (2.0 - M_0_p)
 
-        alpha = 0.1875 * (-4.0 + 5.0 * fa**2)
+        M_0_u = numpy.minimum(1.0, numpy.maximum(M_bar, M_INF_U))
+        fa_u = M_0_u * (2.0 - M_0_u)
+
+        alpha = 0.1875 * (-4.0 + 5.0 * fa_p**2)
 
         M_L_plus = 0.25 * (M_L + 1.0)**2 * (1.0 + 4.0 * beta * (M_L - 1.0)**2)
         M_R_minus = -0.25 * (M_R - 1.0)**2 * (1.0 + 4.0 * beta * (M_R + 1.0)**2)
@@ -291,13 +308,14 @@ def ausm_3d_hori_ausmplusup(
         # ============================================================
         # Physical acoustic speeds for Mp ONLY
         # ============================================================
+
         c_L = numpy.sqrt(heat_capacity_ratio * p_L / numpy.maximum(rho_L, 1.0e-12))
         c_R = numpy.sqrt(heat_capacity_ratio * p_R / numpy.maximum(rho_R, 1.0e-12))
         c_half = 0.5 * (c_L + c_R)
 
         rho_half = 0.5 * (rho_L + rho_R)
 
-        Mp = -(K_p / numpy.maximum(fa, 1.0e-12)) * numpy.maximum(1.0 - sigma * M_bar_sq, 0.0) * (p_R - p_L) / numpy.maximum(rho_half * c_half**2, 1.0e-12)
+        Mp = -(K_p / numpy.maximum(fa_p, 1.0e-12)) * numpy.maximum(1.0 - sigma * M_bar_sq, 0.0) * (p_R - p_L) / numpy.maximum(rho_half * c_half**2, 1.0e-12)
         M = M_L_plus + M_R_minus + Mp
 
         P_L_plus_coeff = 0.25 * (M_L + 1.0)**2 * (2.0 - M_L + 4.0 * alpha * M_L * (M_L - 1.0)**2)
@@ -306,15 +324,16 @@ def ausm_3d_hori_ausmplusup(
         P_L_plus = P_L_plus_coeff * p_L
         P_R_minus = P_R_minus_coeff * p_R
 
-        Pw = -K_u * P_L_plus_coeff * P_R_minus_coeff * (rho_L + rho_R) * fa * a_half * (v_R - v_L)
+        Pw = -K_u * P_L_plus_coeff * P_R_minus_coeff * (rho_L + rho_R) * fa_u * a_half * (v_R - v_L)
 
         P_face = P_L_plus + P_R_minus + Pw
 
         # ============================================================
         # Assemble X2 flux
         # ============================================================
+
         adv_flux_j = sqrtG_j * (numpy.maximum(0.0, M) * a_L * variables_itf_j[:, :, elem_L, 1, :] + numpy.minimum(0.0, M) * a_R * variables_itf_j[:, :, elem_R, 0, :])
-        
+
         flux_x2_itf_j[:, :, elem_L, 1, :] = adv_flux_j
 
         commonPj = sqrtG_j * P_face
@@ -328,6 +347,7 @@ def ausm_3d_hori_ausmplusup(
         # ------------------------------------------------------------
         # rho-w advective contribution
         # ------------------------------------------------------------
+
         w_adv_face_j = adv_flux_j[idx_rho_w, :, :]
         wflux_adv_x2_itf_j[:, elem_L, 1, :] = w_adv_face_j
         wflux_adv_x2_itf_j[:, elem_R, 0, :] = w_adv_face_j
@@ -335,6 +355,7 @@ def ausm_3d_hori_ausmplusup(
         # ------------------------------------------------------------
         # rho-w pressure contribution
         # ------------------------------------------------------------
+
         w_pres_face_j = h23 * commonPj
         wflux_pres_x2_itf_j[:, elem_L, 1, :] = w_pres_face_j / numpy.maximum(p_L, 1.0e-12)
         wflux_pres_x2_itf_j[:, elem_R, 0, :] = w_pres_face_j / numpy.maximum(p_R, 1.0e-12)
