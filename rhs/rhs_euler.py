@@ -7,7 +7,7 @@ from common.definitions import idx_rho_u1, idx_rho_u2, idx_rho_w, idx_rho, idx_r
 # For type hints
 from common.parallel import DistributedWorld
 from geometry        import CubedSphere, DFROperators, Metric3DTopo
-from init.dcmip      import dcmip_schar_damping  #, dcmip_damping
+from init.dcmip      import dcmip_schar_damping, dcmip_gravity_wave
 
 
 # ============================================================
@@ -16,7 +16,7 @@ from init.dcmip      import dcmip_schar_damping  #, dcmip_damping
 # Valid values:
 #   "rusanov"   : local Lax-Friedrichs/Rusanov flux
 #   "ausmplusup": AUSM+up flux
-RIEMANN_SOLVER = "ausmplusup"  # Default Riemann solver for Euler equations
+RIEMANN_SOLVER = "rusanov"  # Default Riemann solver for Euler equations
 
 
 def _validate_riemann_solver(name):
@@ -575,7 +575,7 @@ def rusanov_3d_hori(
 
 
 #@profile
-def rhs_euler (Q: numpy.ndarray, geom: CubedSphere, mtrx: DFROperators, metric: Metric3DTopo, ptopo: DistributedWorld,
+def rhs_euler_core (Q: numpy.ndarray, geom: CubedSphere, mtrx: DFROperators, metric: Metric3DTopo, ptopo: DistributedWorld,
                nbsolpts: int, nb_elements_hori: int, nb_elements_vert: int, case_number: int):
    '''Evaluate the right-hand side of the three-dimensional Euler equations.
 
@@ -976,3 +976,22 @@ def rhs_euler (Q: numpy.ndarray, geom: CubedSphere, mtrx: DFROperators, metric: 
       rhs[idx_rho_w]     = 0.0
       rhs[idx_rho_theta] = 0.0
    return rhs
+
+def build_dcmip31_reference_state( geom, metric, mtrx, param, fields_shape, dtype=numpy.float64):
+    """
+    Build the unperturbed DCMIP-31 reference state in conserved variables.
+
+    Q_ref = [rho, rho*u1, rho*u2, rho*w, rho*theta, ...]
+    """
+
+    rho_ref, u1_ref, u2_ref, w_ref, theta_ref = dcmip_gravity_wave( geom, metric, mtrx, param, perturb=False)
+
+    Q_ref = numpy.zeros(fields_shape, dtype=dtype)
+
+    Q_ref[idx_rho] = rho_ref
+    Q_ref[idx_rho_u1] = rho_ref * u1_ref
+    Q_ref[idx_rho_u2] = rho_ref * u2_ref
+    Q_ref[idx_rho_w] = rho_ref * w_ref
+    Q_ref[idx_rho_theta] = rho_ref * theta_ref
+
+    return Q_ref

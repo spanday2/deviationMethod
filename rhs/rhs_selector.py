@@ -10,7 +10,7 @@ from rhs.rhs_bubble            import rhs_bubble
 from rhs.rhs_bubble_convective import rhs_bubble as rhs_bubble_convective
 from rhs.rhs_bubble_fv         import rhs_bubble_fv
 from rhs.rhs_bubble_implicit   import rhs_bubble_implicit
-from rhs.rhs_euler             import rhs_euler
+from rhs.rhs_euler             import rhs_euler_core, build_dcmip31_reference_state
 from rhs.rhs_euler_convective  import rhs_euler_convective
 from rhs.rhs_euler_fv          import rhs_euler_fv
 from rhs.rhs_sw                import rhs_sw
@@ -20,6 +20,8 @@ from rhs.rhs_advection2d       import rhs_advection2d
 from common.parallel        import DistributedWorld
 from common.program_options import Configuration
 from geometry               import DFROperators, Geometry, Metric
+
+USE_DEVIATION_WELL_BALANCED = True
 
 class RhsBundle:
    '''Set of RHS functions that are associated with a certain geometry and equations
@@ -48,13 +50,30 @@ class RhsBundle:
          return actual_rhs
 
       if param.equations == "euler" and isinstance(geom, CubedSphere):
-         rhs_fn = rhs_euler
-         if param.discretization == 'fv': rhs_fn = rhs_euler       # Fix rhs_euler_fv to be able to use it here
 
-         self.full = generate_rhs(rhs_fn, geom, operators, metric, ptopo, param.nbsolpts, param.nb_elements_horizontal,
-                                  param.nb_elements_vertical, param.case_number)
-         self.convective = generate_rhs(rhs_euler_convective, geom, operators, metric, ptopo, param.nbsolpts,
-                                        param.nb_elements_horizontal, param.nb_elements_vertical, param.case_number)
+         self.Q_ref = None
+         self.rhs_ref = None
+
+         rhs_core = generate_rhs( rhs_euler_core, geom, operators, metric, ptopo, param.nbsolpts, param.nb_elements_horizontal, param.nb_elements_vertical, param.case_number)
+
+         if USE_DEVIATION_WELL_BALANCED and param.case_number == 31:
+
+            self.Q_ref = build_dcmip31_reference_state( geom, metric, operators, param, fields_shape)
+
+            self.rhs_ref = rhs_core(self.Q_ref)
+
+            def well_balanced_rhs(q):
+               rhs_total = rhs_core(q)
+               return rhs_total - self.rhs_ref.reshape(rhs_total.shape)
+
+            self.full = well_balanced_rhs
+
+         else:
+
+            self.full = rhs_core
+
+         self.convective = generate_rhs( rhs_euler_convective, geom, operators, metric, ptopo, param.nbsolpts, param.nb_elements_horizontal, param.nb_elements_vertical, param.case_number)
+
          self.viscous = lambda q: self.full(q) - self.convective(q)
 
       elif param.equations == 'euler' and isinstance(geom, Cartesian2D):

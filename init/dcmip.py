@@ -678,7 +678,7 @@ def dcmip_schar_damping(forcing : numpy.ndarray, rho : numpy.ndarray,
 # TEST CASE 3 - GRAVITY WAVES
 #==========================================================================================
 
-def dcmip_gravity_wave(geom, metric, mtrx, param):
+def dcmip_gravity_wave(geom, metric, mtrx, param, perturb=True):
    """
    Test case 31 - gravity waves
 
@@ -776,9 +776,11 @@ def dcmip_gravity_wave(geom, metric, mtrx, param):
    s = (d**2) / (d**2 + r**2)
 
    theta_pert = delta_theta * s * numpy.sin(2.0 * math.pi * geom.height / Lz)
-#   theta_pert = 0. # for debuging
-
-   theta = theta_base + theta_pert
+   
+   if perturb:
+      theta = theta_base + theta_pert
+   else:
+      theta = theta_base
 
    return rho, u1_contra, u2_contra, w, theta
 

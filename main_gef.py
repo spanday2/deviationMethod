@@ -53,6 +53,16 @@ def main(argv) -> int:
 
    # Get handle to the appropriate RHS functions
    rhs = RhsBundle(geom, mtrx, metric, topo, ptopo, param, Q.shape)
+   
+   if param.case_number == 31 and rhs.Q_ref is not None:
+
+      Q_dev = Q - rhs.Q_ref
+
+      local_max = numpy.max(numpy.abs(Q_dev))
+      global_max = MPI.COMM_WORLD.allreduce(local_max, op=MPI.MAX)
+
+      if MPI.COMM_WORLD.rank == 0:
+         print(f"max |Q - Q_ref| = {global_max:.12e}")
 
    # Time stepping
    stepper = create_time_integrator(param, rhs, preconditioner)
