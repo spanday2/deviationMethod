@@ -406,7 +406,7 @@ def dcmip_mountain(geom: CubedSphere, metric, mtrx, param):
 # Test 2-0:  Steady-State Atmosphere at Rest in the Presence of Orography
 #=========================================================================
 
-def dcmip_steady_state_mountain(geom: CubedSphere, metric, mtrx, param):
+def dcmip_steady_state_mountain(geom: CubedSphere, metric, mtrx, param, apply_topography=True,):
    T0      = 300.0                      # temperature (K)
    gamma   = 0.00650                    # temperature lapse rate (K/m)
    lambdam = 3.0*math.pi/2.0            # mountain longitude center point (radians)
@@ -437,11 +437,10 @@ def dcmip_steady_state_mountain(geom: CubedSphere, metric, mtrx, param):
       r = numpy.arccos( math.sin(phim) * numpy.sin(lat) + math.cos(phim) * numpy.cos(lat) * numpy.cos(lon - lambdam) )
       z[r<Rm] = (h0/2.0)*(1.0+numpy.cos(math.pi*r[r<Rm]/Rm))*numpy.cos(math.pi*r[r<Rm]/zetam)**2   # mountain height
 
-
-   # Update the geometry object with the new bottom topography
-   geom.apply_topography(zbot,zbot_itf_i,zbot_itf_j)
-   # And regenerate the metric to take this new topography into account
-   metric.build_metric()
+   
+   if apply_topography:
+      geom.apply_topography(zbot, zbot_itf_i, zbot_itf_j)
+      metric.build_metric()
 
    #-----------------------------------------------------------------------
    #    PS (surface pressure)
@@ -512,7 +511,7 @@ def dcmip_steady_state_mountain(geom: CubedSphere, metric, mtrx, param):
    # theta += 1e-2*numpy.random.randn(*theta[:,0,0].shape)[:,None,None]
    # theta += 1e-2*numpy.random.randn(*theta.shape)
 
-   return rho-rho, u1_contra-u1_contra, u2_contra-u2_contra, w-w, theta-theta
+   return rho, u1_contra, u2_contra, w, theta
 
 
 

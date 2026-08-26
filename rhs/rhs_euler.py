@@ -7,7 +7,7 @@ from common.definitions import idx_rho_u1, idx_rho_u2, idx_rho_w, idx_rho, idx_r
 # For type hints
 from common.parallel import DistributedWorld
 from geometry        import CubedSphere, DFROperators, Metric3DTopo
-from init.dcmip      import dcmip_schar_damping, dcmip_gravity_wave
+from init.dcmip      import dcmip_schar_damping, dcmip_gravity_wave, dcmip_steady_state_mountain
 
 
 # ============================================================
@@ -993,5 +993,19 @@ def build_dcmip31_reference_state( geom, metric, mtrx, param, fields_shape, dtyp
     Q_ref[idx_rho_u2] = rho_ref * u2_ref
     Q_ref[idx_rho_w] = rho_ref * w_ref
     Q_ref[idx_rho_theta] = rho_ref * theta_ref
+
+    return Q_ref
+
+def build_dcmip20_reference_state( geom, metric, mtrx, param, fields_shape, dtype=numpy.float64,):
+    
+    rho_ref, u1_ref, u2_ref, w_ref, theta_ref = dcmip_steady_state_mountain(geom, metric, mtrx, param, apply_topography=False,)
+
+    Q_ref = numpy.zeros(fields_shape, dtype=dtype,)
+
+    Q_ref[idx_rho] = rho_ref
+    Q_ref[idx_rho_u1] = (rho_ref * u1_ref)
+    Q_ref[idx_rho_u2] = (rho_ref * u2_ref)
+    Q_ref[idx_rho_w] = (rho_ref * w_ref)
+    Q_ref[idx_rho_theta] = (rho_ref * theta_ref)
 
     return Q_ref

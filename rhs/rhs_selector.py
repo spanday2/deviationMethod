@@ -10,7 +10,7 @@ from rhs.rhs_bubble            import rhs_bubble
 from rhs.rhs_bubble_convective import rhs_bubble as rhs_bubble_convective
 from rhs.rhs_bubble_fv         import rhs_bubble_fv
 from rhs.rhs_bubble_implicit   import rhs_bubble_implicit
-from rhs.rhs_euler             import rhs_euler_core, build_dcmip31_reference_state
+from rhs.rhs_euler             import rhs_euler_core, build_dcmip31_reference_state, build_dcmip20_reference_state
 from rhs.rhs_euler_convective  import rhs_euler_convective
 from rhs.rhs_euler_fv          import rhs_euler_fv
 from rhs.rhs_sw                import rhs_sw
@@ -53,17 +53,33 @@ class RhsBundle:
 
          self.Q_ref = None
          self.rhs_ref = None
+         self.is_deviation = False
 
-         rhs_core = generate_rhs( rhs_euler_core, geom, operators, metric, ptopo, param.nbsolpts, param.nb_elements_horizontal, param.nb_elements_vertical, param.case_number)
+         rhs_core = generate_rhs(rhs_euler_core, geom, operators, metric, ptopo, param.nbsolpts,
+            param.nb_elements_horizontal, param.nb_elements_vertical, param.case_number,)
 
-         if USE_DEVIATION_WELL_BALANCED and param.case_number == 31:
+         if USE_DEVIATION_WELL_BALANCED:
 
-            self.Q_ref = build_dcmip31_reference_state( geom, metric, operators, param, fields_shape)
+            if param.case_number == 20:
+               self.Q_ref = build_dcmip20_reference_state(geom, metric, operators, param, fields_shape,)
+
+            elif param.case_number == 31:
+               self.Q_ref = build_dcmip31_reference_state(geom, metric, operators, param, fields_shape,)
+
+         if self.Q_ref is not None:
 
             self.rhs_ref = rhs_core(self.Q_ref)
+            self.is_deviation = True
 
             def well_balanced_rhs(q):
-               rhs_total = rhs_core(q)
+
+               old_shape = q.shape
+
+               q_dev = q.reshape(self.shape)
+               q_total = q_dev + self.Q_ref
+
+               rhs_total = rhs_core(q_total.reshape(old_shape))
+
                return rhs_total - self.rhs_ref.reshape(rhs_total.shape)
 
             self.full = well_balanced_rhs
@@ -72,10 +88,12 @@ class RhsBundle:
 
             self.full = rhs_core
 
-         self.convective = generate_rhs( rhs_euler_convective, geom, operators, metric, ptopo, param.nbsolpts, param.nb_elements_horizontal, param.nb_elements_vertical, param.case_number)
+         self.convective = generate_rhs(
+            rhs_euler_convective, geom, operators, metric, ptopo, param.nbsolpts,
+            param.nb_elements_horizontal, param.nb_elements_vertical, param.case_number,)
 
-         self.viscous = lambda q: self.full(q) - self.convective(q)
-
+         self.viscous = lambda q: (self.full(q) - self.convective(q))
+   
       elif param.equations == 'euler' and isinstance(geom, Cartesian2D):
          flux_functions = {'ausm': ausm_2d_fv, 'upwind': upwind_2d_fv, 'rusanov': rusanov_2d_fv}
          if param.discretization == 'fv':

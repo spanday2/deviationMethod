@@ -36,13 +36,16 @@ def pmex(τ_out, A, u, tol = 1e-7, delta = 1.2, m_init = 1, mmax = 128, reuse_in
       pmex.suggested_step = τ_end 
       pmex.suggested_m = mmax
       m_init = 1
-      m_opt  = 1
    else:
       m_init = pmex.suggested_m
-
+   
    # We only allow m to vary between mmin and mmax
    mmin = 1
    m = max(mmin, min(m_init, mmax))
+
+   # Default optimal Krylov dimension.
+   # Required if happy breakdown occurs before m_opt is calculated.
+   m_opt = m
 
    # Preallocate matrix
    V = numpy.zeros((mmax + 1, n + p))
@@ -196,6 +199,7 @@ def pmex(τ_out, A, u, tol = 1e-7, delta = 1.2, m_init = 1, mmax = 128, reuse_in
          err   = 0.
          τ_new = min(τ_end - (τ_now + τ), τ)
          m_new = m
+         m_opt = m
          happy = False
 
       else:

@@ -53,22 +53,30 @@ def main(argv) -> int:
 
    # Get handle to the appropriate RHS functions
    rhs = RhsBundle(geom, mtrx, metric, topo, ptopo, param, Q.shape)
-   
-   if param.case_number == 31 and rhs.Q_ref is not None:
+   if rhs.is_deviation:
+      Q = Q - rhs.Q_ref
+      
+   if rhs.is_deviation:
 
-      Q_dev = Q - rhs.Q_ref
-
-      local_max = numpy.max(numpy.abs(Q_dev))
+      local_max = numpy.max(numpy.abs(Q))
       global_max = MPI.COMM_WORLD.allreduce(local_max, op=MPI.MAX)
 
       if MPI.COMM_WORLD.rank == 0:
-         print(f"max |Q - Q_ref| = {global_max:.12e}")
+         print("==============================================")
+         print("INITIAL DEVIATION STATE")
+         print(f"max |Delta Q| = {global_max:.16e}")
+         print("==============================================")
 
    # Time stepping
    stepper = create_time_integrator(param, rhs, preconditioner)
    stepper.output_manager = output
+   
+   if rhs.is_deviation:
+      Q_output = Q + rhs.Q_ref
+   else:
+      Q_output = Q
 
-   output.step(Q, starting_step)
+   output.step(Q_output, starting_step)
    sys.stdout.flush()
 
    t = param.dt * starting_step
@@ -107,7 +115,13 @@ def main(argv) -> int:
          Q[idx_rho_u2,:,:,:] = Q[idx_rho, :, :, :] * u2_contra
          Q[idx_rho_w,:,:,:]  = Q[idx_rho, :, :, :] * w_wind
 
-      output.step(Q, step)
+      if rhs.is_deviation:
+         Q_output = Q + rhs.Q_ref
+      else:
+         Q_output = Q
+
+      output.step(Q_output, step)
+      
       sys.stdout.flush()
 
       if stepper.failure_flag != 0: break
