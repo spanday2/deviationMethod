@@ -133,7 +133,7 @@ def ausm_plus_up_flux(
     K_u = 0.75
     beta = 1.0 / 8.0
 
-    M_inf_u = 1.0e-2
+    M_inf_u = 1.0e-6
     M_inf_p = 1.0
 
     # ------------------------------------------------------------
@@ -327,7 +327,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
    # ============================================================
    USE_WELL_BALANCED = True
 
-   FLUX_NAME = "rusanov"
+   FLUX_NAME = "ausm_plus_up"
    # Options:
    #    "rusanov"
    #    "ausm_plus"

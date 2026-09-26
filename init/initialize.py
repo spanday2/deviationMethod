@@ -233,6 +233,7 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
       pressure = p0 * numpy.exp(-geom.X3 / H)
       ρ = pressure / (Rd * t)
       θ  = t * (p0 / pressure)**(Rd/cpd)
+      
 
     
    elif param.case_number == 3:
@@ -307,16 +308,48 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
    Q[idx_2d_rho_w,:,:]     = ρ * ww
    Q[idx_2d_rho_theta,:,:] = ρ * θ   
    
+   # if param.case_number == 666:
+   #    Q_base = numpy.zeros_like(Q)
+   #    T0      = 300.0                                      # temperature
+   #    H       = Rd * T0 / gravity                          # scale height
+   #    t = T0
+   #    pressure = p0 * numpy.exp(-geom.X3 / H)
+   #    Q_base[idx_2d_rho] = pressure / (Rd * t)
+   #    Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / pressure)**(Rd/cpd)  
+      
+   #    Q = Q - Q_base 
+      
    if param.case_number == 666:
       Q_base = numpy.zeros_like(Q)
-      T0      = 300.0                                      # temperature
-      H       = Rd * T0 / gravity                          # scale height
-      t = T0
-      pressure = p0 * numpy.exp(-geom.X3 / H)
-      Q_base[idx_2d_rho] = pressure / (Rd * t)
-      Q_base[idx_2d_rho_theta] = Q_base[idx_2d_rho] * t * (p0 / pressure)**(Rd/cpd)  
-      
-      Q = Q - Q_base 
+
+      T0 = 300.0
+      H = Rd * T0 / gravity
+
+      pressure_base = p0 * numpy.exp(-geom.X3 / H)
+      rho_base = pressure_base / (Rd * T0)
+
+      theta_base = T0 * (p0 / pressure_base)**(Rd / cpd)
+
+      Q_base[idx_2d_rho] = rho_base
+      Q_base[idx_2d_rho_u] = 0.0
+      Q_base[idx_2d_rho_w] = 0.0
+
+      # Important: same grouping as Q = rho * theta
+      Q_base[idx_2d_rho_theta] = rho_base * theta_base
+
+      Q = Q - Q_base
+      velocity_perturbation = 1.0e-8
+      perturbation_width = 200.0
+      perturbation_center = 500.0
+      perturbation_profile = numpy.exp(
+         -((geom.X1 - perturbation_center) / perturbation_width) ** 2
+      )
+      Q[idx_2d_rho_u, :, :] = (
+         rho_base * velocity_perturbation * perturbation_profile
+      )
+      # Q[idx_2d_rho_u, :, :] = (
+      #          Q[0] * velocity_perturbation * perturbation_profile
+      #       )
 
 
    return Q
