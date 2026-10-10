@@ -236,148 +236,374 @@ def rusanov_flux(
     return F.astype(dtype, copy=False)
 
 
+
 def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
-   
-   def rhs(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
-      datatype = Q.dtype
-      nb_equations = Q.shape[0] # Number of constituent Euler equations.  Probably 6.
 
-      nb_interfaces_x = nb_elements_x + 1
-      nb_interfaces_z = nb_elements_z + 1
+    def rhs(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
 
-      flux_x1 = numpy.empty_like(Q, dtype=datatype)
-      flux_x3 = numpy.empty_like(Q, dtype=datatype)
+        datatype = Q.dtype
+        nb_equations = Q.shape[0]
 
-      df1_dx1 = numpy.empty_like(Q, dtype=datatype)
-      df3_dx3 = numpy.empty_like(Q, dtype=datatype)
+        nb_interfaces_x = nb_elements_x + 1
+        nb_interfaces_z = nb_elements_z + 1
 
-      kfaces_flux = numpy.empty((nb_equations, nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype)
-      kfaces_var  = numpy.empty((nb_equations, nb_elements_z, 2, nbsolpts*nb_elements_x), dtype=datatype)
+        flux_x1 = numpy.empty_like(Q, dtype=datatype)
+        flux_x3 = numpy.empty_like(Q, dtype=datatype)
 
-      ifaces_flux = numpy.empty((nb_equations, nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
-      ifaces_var  = numpy.empty((nb_equations, nb_elements_x, nbsolpts*nb_elements_z, 2), dtype=datatype)
+        df1_dx1 = numpy.empty_like(Q, dtype=datatype)
+        df3_dx3 = numpy.empty_like(Q, dtype=datatype)
 
-      # --- Unpack physical variables
-      rho      = Q[idx_2d_rho,:,:]
-      uu       = Q[idx_2d_rho_u,:,:] / rho
-      ww       = Q[idx_2d_rho_w,:,:] / rho
-      theta    = Q[idx_2d_rho_theta,:,:] / rho  
-      pressure = rho * Rd * theta
-       
-      # --- Compute the fluxes
-      flux_x1[idx_2d_rho,:,:]       = Q[idx_2d_rho_u,:,:]
-      flux_x1[idx_2d_rho_u,:,:]     = Q[idx_2d_rho_u,:,:] * uu + pressure
-      flux_x1[idx_2d_rho_w,:,:]     = Q[idx_2d_rho_u,:,:] * ww
-      flux_x1[idx_2d_rho_theta,:,:] = Q[idx_2d_rho_theta,:,:] * uu
+        kfaces_flux = numpy.empty(
+            (nb_equations, nb_elements_z, 2,
+             nbsolpts * nb_elements_x),
+            dtype=datatype
+        )
 
-      flux_x3[idx_2d_rho,:,:]       = Q[idx_2d_rho_w,:,:]
-      flux_x3[idx_2d_rho_u,:,:]     = Q[idx_2d_rho_w,:,:] * uu
-      flux_x3[idx_2d_rho_w,:,:]     = Q[idx_2d_rho_w,:,:] * ww + pressure
-      flux_x3[idx_2d_rho_theta,:,:] = Q[idx_2d_rho_theta,:,:] * ww
+        kfaces_var = numpy.empty_like(kfaces_flux)
 
+        ifaces_flux = numpy.empty(
+            (nb_equations, nb_elements_x,
+             nbsolpts * nb_elements_z, 2),
+            dtype=datatype
+        )
 
-      # --- Interpolate to the element interface
-      standard_slice = numpy.arange(nbsolpts)
-      for elem in range(nb_elements_z):
-         epais = elem * nbsolpts + standard_slice
+        ifaces_var = numpy.empty_like(ifaces_flux)
 
-         kfaces_var[:,elem,0,:] = mtrx.extrap_down @ Q[:,epais,:]
-         kfaces_var[:,elem,1,:] = mtrx.extrap_up @ Q[:,epais,:]
+        # --------------------------------------------
+        # Physical variables
+        # Fourth conserved variable is rho*T
+        # --------------------------------------------
 
-      for elem in range(nb_elements_x):
-         epais = elem * nbsolpts + standard_slice
+        rho = Q[idx_2d_rho, :, :]
+        uu = Q[idx_2d_rho_u, :, :] / rho
+        ww = Q[idx_2d_rho_w, :, :] / rho
 
-         ifaces_var[:,elem,:,0] = Q[:,:,epais] @ mtrx.extrap_west
-         ifaces_var[:,elem,:,1] = Q[:,:,epais] @ mtrx.extrap_east
+        temperature = Q[idx_2d_rho_theta, :, :] / rho
+        pressure = rho * Rd * temperature
 
-      # --- Interface pressure
-      ifaces_pres = ifaces_var[idx_2d_rho_theta] * Rd
-      kfaces_pres = kfaces_var[idx_2d_rho_theta] * Rd
-      
+        # --------------------------------------------
+        # Physical fluxes
+        # --------------------------------------------
 
+        flux_x1[idx_2d_rho, :, :] = Q[idx_2d_rho_u, :, :]
 
-      # --- Common AUSM fluxes
-      start = 0 if geom.zperiodic else 1
-      for itf in range(start, nb_interfaces_z - 1):
+        flux_x1[idx_2d_rho_u, :, :] = (
+            Q[idx_2d_rho_u, :, :] * uu + pressure
+        )
 
-         left  = itf - 1
-         right = itf
+        flux_x1[idx_2d_rho_w, :, :] = (
+            Q[idx_2d_rho_u, :, :] * ww
+        )
 
-         # Gather left/right slices (shape (neq, N))
-         UL = kfaces_var[:, left,  1, :]
-         UR = kfaces_var[:, right, 0, :]
+        flux_x1[idx_2d_rho_theta, :, :] = (
+            Q[idx_2d_rho_theta, :, :] * uu
+        )
 
-         pL = kfaces_pres[left,  1, :]
-         pR = kfaces_pres[right, 0, :]
+        flux_x3[idx_2d_rho, :, :] = Q[idx_2d_rho_w, :, :]
 
-         flux = ausm_plus_up_flux(
-            UL, UR, pL, pR,
-            gamma=heat_capacity_ratio,
-            idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
-            normal="z"
-         )
+        flux_x3[idx_2d_rho_u, :, :] = (
+            Q[idx_2d_rho_w, :, :] * uu
+        )
 
-         kfaces_flux[:, right, 0, :] = flux
-         kfaces_flux[:, left,  1, :] = flux  # mirror
-      
-      if geom.zperiodic:
-         kfaces_flux[:, 0, 0, :] = kfaces_flux[:, -1, 1, :]
+        flux_x3[idx_2d_rho_w, :, :] = (
+            Q[idx_2d_rho_w, :, :] * ww + pressure
+        )
 
+        flux_x3[idx_2d_rho_theta, :, :] = (
+            Q[idx_2d_rho_theta, :, :] * ww
+        )
 
-      start = 0 if geom.xperiodic else 1
-      for itf in range(start, nb_interfaces_x - 1):
+        # --------------------------------------------
+        # Extrapolate conserved variables to faces
+        # --------------------------------------------
 
-         left  = itf - 1
-         right = itf
+        standard_slice = numpy.arange(nbsolpts)
 
-         UL = ifaces_var[:, left,  :, 1]   # (neq, N)
-         UR = ifaces_var[:, right, :, 0]
+        for elem in range(nb_elements_z):
+            epais = elem * nbsolpts + standard_slice
 
-         pL = ifaces_pres[left,  :, 1]     # (N,)
-         pR = ifaces_pres[right, :, 0]
+            kfaces_var[:, elem, 0, :] = (
+                mtrx.extrap_down @ Q[:, epais, :]
+            )
 
-         flux = ausm_plus_up_flux(
-            UL, UR, pL, pR,
-            gamma=heat_capacity_ratio,
-            idx_rho=idx_2d_rho, idx_u=idx_2d_rho_u, idx_w=idx_2d_rho_w, idx_theta=idx_2d_rho_theta,
-            normal="x"
-         )
+            kfaces_var[:, elem, 1, :] = (
+                mtrx.extrap_up @ Q[:, epais, :]
+            )
 
-         ifaces_flux[:, right, :, 0] = flux
-         ifaces_flux[:, left,  :, 1] = flux  # mirror
+        for elem in range(nb_elements_x):
+            epais = elem * nbsolpts + standard_slice
 
-      if geom.xperiodic:
-         ifaces_flux[:, 0, :, 0] = ifaces_flux[:, -1, :, 1]
+            ifaces_var[:, elem, :, 0] = (
+                Q[:, :, epais] @ mtrx.extrap_west
+            )
 
-      # --- Compute the derivatives
-      for elem in range(nb_elements_z):
-         epais = elem * nbsolpts + standard_slice
-         factor = 2.0 / geom.Δx3
-         if elem < geom.nb_elements_relief_layer:
-            factor = 2.0 / geom.relief_layer_delta
+            ifaces_var[:, elem, :, 1] = (
+                Q[:, :, epais] @ mtrx.extrap_east
+            )
 
-         df3_dx3[:, epais, :] = \
-            (mtrx.diff_solpt @ flux_x3[:, epais, :] + mtrx.correction @ kfaces_flux[:, elem, :, :]) * factor
+        # --------------------------------------------
+        # Pressure at extrapolated faces
+        # --------------------------------------------
 
-      for elem in range(nb_elements_x):
-         epais = elem * nbsolpts + numpy.arange(nbsolpts)
+        ifaces_pres = ifaces_var[idx_2d_rho_theta] * Rd
+        kfaces_pres = kfaces_var[idx_2d_rho_theta] * Rd
 
-         df1_dx1[:,:,epais] = (flux_x1[:,:,epais] @ mtrx.diff_solpt.T + ifaces_flux[:,elem,:,:] @ mtrx.correction.T) * \
-                              2.0/geom.Δx1
+        # --------------------------------------------
+        # AUSM+up numerical fluxes: vertical direction
+        # --------------------------------------------
 
-      # --- Assemble the right-hand sides
-      rhs = - ( df1_dx1 + df3_dx3 )
-     
+        start = 0 if geom.zperiodic else 1
 
-      rhs[idx_2d_rho_w,:,:] -= Q[idx_2d_rho,:,:] * gravity
+        for itf in range(start, nb_interfaces_z - 1):
 
+            left = itf - 1
+            right = itf
 
-      return rhs
-   
-   
-   t_rhs = rhs(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z)
+            UL = kfaces_var[:, left, 1, :]
+            UR = kfaces_var[:, right, 0, :]
 
-   
-   return t_rhs
+            pL = kfaces_pres[left, 1, :]
+            pR = kfaces_pres[right, 0, :]
+
+            flux = ausm_plus_up_flux(
+                UL, UR, pL, pR,
+                gamma=heat_capacity_ratio,
+                idx_rho=idx_2d_rho,
+                idx_u=idx_2d_rho_u,
+                idx_w=idx_2d_rho_w,
+                idx_theta=idx_2d_rho_theta,
+                normal="z"
+            )
+
+            kfaces_flux[:, right, 0, :] = flux
+            kfaces_flux[:, left, 1, :] = flux
+
+        if geom.zperiodic:
+            kfaces_flux[:, 0, 0, :] = kfaces_flux[:, -1, 1, :]
+
+        # --------------------------------------------
+        # AUSM+up numerical fluxes: horizontal direction
+        # --------------------------------------------
+
+        start = 0 if geom.xperiodic else 1
+
+        for itf in range(start, nb_interfaces_x - 1):
+
+            left = itf - 1
+            right = itf
+
+            UL = ifaces_var[:, left, :, 1]
+            UR = ifaces_var[:, right, :, 0]
+
+            pL = ifaces_pres[left, :, 1]
+            pR = ifaces_pres[right, :, 0]
+
+            flux = ausm_plus_up_flux(
+                UL, UR, pL, pR,
+                gamma=heat_capacity_ratio,
+                idx_rho=idx_2d_rho,
+                idx_u=idx_2d_rho_u,
+                idx_w=idx_2d_rho_w,
+                idx_theta=idx_2d_rho_theta,
+                normal="x"
+            )
+
+            ifaces_flux[:, right, :, 0] = flux
+            ifaces_flux[:, left, :, 1] = flux
+
+        if geom.xperiodic:
+            ifaces_flux[:, 0, :, 0] = ifaces_flux[:, -1, :, 1]
+
+        # Nonperiodic physical boundary fluxes are not
+        # specified in the supplied code.
+        # Avoid using uninitialized boundary fluxes.
+        if not geom.xperiodic or not geom.zperiodic:
+            raise NotImplementedError(
+                "Supply the physical boundary fluxes for "
+                "nonperiodic boundaries before evaluating RHS."
+            )
+
+        # --------------------------------------------
+        # Conservative flux derivatives using DFR
+        # --------------------------------------------
+
+        for elem in range(nb_elements_z):
+
+            epais = elem * nbsolpts + standard_slice
+
+            factor = 2.0 / geom.Δx3
+
+            if elem < geom.nb_elements_relief_layer:
+                factor = 2.0 / geom.relief_layer_delta
+
+            df3_dx3[:, epais, :] = (
+                mtrx.diff_solpt @ flux_x3[:, epais, :]
+                + mtrx.correction @ kfaces_flux[:, elem, :, :]
+            ) * factor
+
+        for elem in range(nb_elements_x):
+
+            epais = elem * nbsolpts + standard_slice
+
+            df1_dx1[:, :, epais] = (
+                flux_x1[:, :, epais] @ mtrx.diff_solpt.T
+                + ifaces_flux[:, elem, :, :] @ mtrx.correction.T
+            ) * (2.0 / geom.Δx1)
+
+        # ============================================
+        # DFR VELOCITY DIVERGENCE WITH CORRECTION
+        # ============================================
+
+        du_dx = numpy.empty_like(uu)
+        dw_dz = numpy.empty_like(ww)
+
+        # --------------------------------------------
+        # Extrapolate primitive velocities to faces
+        # --------------------------------------------
+
+        u_faces = numpy.empty(
+            (nb_elements_x, uu.shape[0], 2),
+            dtype=datatype
+        )
+
+        w_faces = numpy.empty(
+            (nb_elements_z, 2, ww.shape[1]),
+            dtype=datatype
+        )
+
+        for elem in range(nb_elements_x):
+
+            epais = elem * nbsolpts + standard_slice
+
+            u_faces[elem, :, 0] = (
+                uu[:, epais] @ mtrx.extrap_west
+            )
+
+            u_faces[elem, :, 1] = (
+                uu[:, epais] @ mtrx.extrap_east
+            )
+
+        for elem in range(nb_elements_z):
+
+            epais = elem * nbsolpts + standard_slice
+
+            w_faces[elem, 0, :] = (
+                mtrx.extrap_down @ ww[epais, :]
+            )
+
+            w_faces[elem, 1, :] = (
+                mtrx.extrap_up @ ww[epais, :]
+            )
+
+        # --------------------------------------------
+        # Common interface velocities: central traces
+        # --------------------------------------------
+
+        u_common = u_faces.copy()
+        w_common = w_faces.copy()
+
+        # Interior x-interfaces
+        for elem in range(nb_elements_x - 1):
+
+            u_star = 0.5 * (
+                u_faces[elem, :, 1]
+                + u_faces[elem + 1, :, 0]
+            )
+
+            u_common[elem, :, 1] = u_star
+            u_common[elem + 1, :, 0] = u_star
+
+        # Periodic x-interface
+        if geom.xperiodic:
+
+            u_star = 0.5 * (
+                u_faces[-1, :, 1]
+                + u_faces[0, :, 0]
+            )
+
+            u_common[-1, :, 1] = u_star
+            u_common[0, :, 0] = u_star
+
+        # Interior z-interfaces
+        for elem in range(nb_elements_z - 1):
+
+            w_star = 0.5 * (
+                w_faces[elem, 1, :]
+                + w_faces[elem + 1, 0, :]
+            )
+
+            w_common[elem, 1, :] = w_star
+            w_common[elem + 1, 0, :] = w_star
+
+        # Periodic z-interface
+        if geom.zperiodic:
+
+            w_star = 0.5 * (
+                w_faces[-1, 1, :]
+                + w_faces[0, 0, :]
+            )
+
+            w_common[-1, 1, :] = w_star
+            w_common[0, 0, :] = w_star
+
+        # --------------------------------------------
+        # DFR derivative du/dx
+        # --------------------------------------------
+
+        for elem in range(nb_elements_x):
+
+            epais = elem * nbsolpts + standard_slice
+
+            du_dx[:, epais] = (
+                uu[:, epais] @ mtrx.diff_solpt.T
+                + u_common[elem] @ mtrx.correction.T
+            ) * (2.0 / geom.Δx1)
+
+        # --------------------------------------------
+        # DFR derivative dw/dz
+        # --------------------------------------------
+
+        for elem in range(nb_elements_z):
+
+            epais = elem * nbsolpts + standard_slice
+
+            factor = 2.0 / geom.Δx3
+
+            if elem < geom.nb_elements_relief_layer:
+                factor = 2.0 / geom.relief_layer_delta
+
+            dw_dz[epais, :] = (
+                mtrx.diff_solpt @ ww[epais, :]
+                + mtrx.correction @ w_common[elem]
+            ) * factor
+
+        # Velocity divergence
+        div_velocity = du_dx + dw_dz
+
+        # ============================================
+        # ASSEMBLE RHS
+        # ============================================
+
+        rhs = -(df1_dx1 + df3_dx3)
+
+        # Gravity
+        rhs[idx_2d_rho_w, :, :] -= rho * gravity
+
+        # Temperature compression/expansion source
+        rhs[idx_2d_rho_theta, :, :] -= (
+            (heat_capacity_ratio - 1.0)
+            * Q[idx_2d_rho_theta, :, :]
+            * div_velocity
+        )
+
+        return rhs
+
+    t_rhs = rhs(
+        Q, geom, mtrx,
+        nbsolpts, nb_elements_x, nb_elements_z
+    )
+
+    return t_rhs
+
 
       
