@@ -365,7 +365,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
             pL = kfaces_pres[left, 1, :]
             pR = kfaces_pres[right, 0, :]
 
-            flux = ausm_plus_up_flux(
+            flux = rusanov_flux(
                 UL, UR, pL, pR,
                 gamma=heat_capacity_ratio,
                 idx_rho=idx_2d_rho,
@@ -398,7 +398,7 @@ def rhs_bubble(Q, geom, mtrx, nbsolpts, nb_elements_x, nb_elements_z):
             pL = ifaces_pres[left, :, 1]
             pR = ifaces_pres[right, :, 0]
 
-            flux = ausm_plus_up_flux(
+            flux = rusanov_flux(
                 UL, UR, pL, pR,
                 gamma=heat_capacity_ratio,
                 idx_rho=idx_2d_rho,

@@ -236,7 +236,7 @@ def initialize_cartesian2d(geom: Cartesian2D, param: Configuration):
       
    elif param.case_number == 651:
       gamma = 1.4
-      Mmax = 1e-3   # or 1.0e-2 if you want Mach 0.01
+      Mmax = 1e-1   # or 1.0e-2 if you want Mach 0.01
 
       # Center the vortex
       xc, yc = 0.5, 0.5
